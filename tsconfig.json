@@ -1,0 +1,23 @@
+{
+  "compilerOptions": {
+    "target": "esnext",
+    "module": "commonjs",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true, // You can skip library checks if necessary
+    "forceConsistentCasingInFileNames": true,
+    "moduleResolution": "node",
+    "outDir": "./dist",
+    "baseUrl": "./",
+    "paths": {
+      "*": [
+        "node_modules/*",
+        "src/types/*" // Adjust this path as needed for your custom type definitions
+      ]
+    }
+  },
+  "include": [
+    "src/**/*",
+    "src/types/express/index.d.ts"
+  ]
+}
