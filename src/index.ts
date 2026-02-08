@@ -14,7 +14,7 @@ const app = express();
 app.use(express.json());
 app.use(
     cors({
-        origin: ["http://localhost:5173", "https://cliento-server.vercel.app"],
+        origin: ["http://localhost:5173", "https://cliento-server.vercel.app", "https://cliento-crm.vercel.app"],
         credentials: true
     })
 );
