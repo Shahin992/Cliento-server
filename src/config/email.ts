@@ -105,3 +105,133 @@ export const sendWelcomeEmail = async (to: string, name: string, tempPassword: s
     req.end();
   });
 };
+
+export const sendPasswordResetOtpEmail = async (to: string, name: string, otp: string) => {
+  const { apiKey, senderEmail, senderName } = getEmailConfig();
+  if (!canSendEmail()) {
+    console.warn('====> Email not sent: missing Brevo API env vars');
+    return;
+  }
+
+  const payload = JSON.stringify({
+    sender: { name: senderName, email: senderEmail },
+    to: [{ email: to, name }],
+    subject: 'Your password reset code',
+    htmlContent: `
+    <div style="font-family: Arial, Helvetica, sans-serif; background-color: #f5f7fb; padding: 30px;">
+      <div style="max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 8px; padding: 30px;">
+        <h2 style="color: #333; margin-top: 0;">Password reset code</h2>
+        <p style="color: #555; font-size: 15px; line-height: 1.6;">
+          Use the code below to reset your password. It expires in 5 minutes.
+        </p>
+        <div style="background:#f3f6ff;border:1px solid #d9e2ff;border-radius:6px;padding:12px 16px;margin:16px 0;">
+          <p style="margin:0;color:#333;font-size:14px;">
+            OTP code: <strong style="font-size:18px; letter-spacing: 2px;">${otp}</strong>
+          </p>
+        </div>
+        <p style="color: #555; font-size: 13px; line-height: 1.6;">
+          If you didn’t request this, you can ignore this email.
+        </p>
+        <p style="color: #555; font-size: 14px;">
+          Thanks,<br/>
+          <strong>The Cliento Team</strong>
+        </p>
+      </div>
+    </div>`
+  });
+
+  await new Promise((resolve, reject) => {
+    const req = https.request(
+      {
+        hostname: 'api.brevo.com',
+        path: '/v3/smtp/email',
+        method: 'POST',
+        headers: {
+          'api-key': apiKey as string,
+          'content-type': 'application/json',
+          accept: 'application/json',
+          'content-length': Buffer.byteLength(payload),
+        },
+      },
+      (res) => {
+        let data = '';
+        res.on('data', (chunk) => {
+          data += chunk;
+        });
+        res.on('end', () => {
+          if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) {
+            console.log(`====> Email sent: ${res.statusCode}`);
+            resolve(data);
+          } else {
+            reject(new Error(`Brevo API error: ${res.statusCode} ${data}`));
+          }
+        });
+      }
+    );
+
+    req.on('error', reject);
+    req.write(payload);
+    req.end();
+  });
+};
+
+export const sendPasswordResetConfirmationEmail = async (to: string, name: string) => {
+  const { apiKey, senderEmail, senderName } = getEmailConfig();
+  if (!canSendEmail()) {
+    console.warn('====> Email not sent: missing Brevo API env vars');
+    return;
+  }
+
+  const payload = JSON.stringify({
+    sender: { name: senderName, email: senderEmail },
+    to: [{ email: to, name }],
+    subject: 'Your password was reset',
+    htmlContent: `
+    <div style="font-family: Arial, Helvetica, sans-serif; background-color: #f5f7fb; padding: 30px;">
+      <div style="max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 8px; padding: 30px;">
+        <h2 style="color: #333; margin-top: 0;">Password changed</h2>
+        <p style="color: #555; font-size: 15px; line-height: 1.6;">
+          Your password was successfully reset. If you didn’t do this, please contact support immediately.
+        </p>
+        <p style="color: #555; font-size: 14px;">
+          Thanks,<br/>
+          <strong>The Cliento Team</strong>
+        </p>
+      </div>
+    </div>`
+  });
+
+  await new Promise((resolve, reject) => {
+    const req = https.request(
+      {
+        hostname: 'api.brevo.com',
+        path: '/v3/smtp/email',
+        method: 'POST',
+        headers: {
+          'api-key': apiKey as string,
+          'content-type': 'application/json',
+          accept: 'application/json',
+          'content-length': Buffer.byteLength(payload),
+        },
+      },
+      (res) => {
+        let data = '';
+        res.on('data', (chunk) => {
+          data += chunk;
+        });
+        res.on('end', () => {
+          if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) {
+            console.log(`====> Email sent: ${res.statusCode}`);
+            resolve(data);
+          } else {
+            reject(new Error(`Brevo API error: ${res.statusCode} ${data}`));
+          }
+        });
+      }
+    );
+
+    req.on('error', reject);
+    req.write(payload);
+    req.end();
+  });
+};
