@@ -14,7 +14,7 @@ const app = express();
 app.use(express.json());
 app.use(
     cors({
-        origin: ["http://localhost:5173"],
+        origin: ["http://localhost:5173", "https://cliento-server.vercel.app"],
         credentials: true
     })
 );
@@ -38,7 +38,8 @@ const swaggerSpec = swaggerJSDoc({
     apis: [path.resolve(process.cwd(), 'src/modules/**/*.ts')],
 });
 
-app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+app.use('/api-docs', swaggerUi.serve);
+app.get('/api-docs', swaggerUi.setup(swaggerSpec));
 
 // Database connection
 connectDB();
