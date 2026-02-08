@@ -5,7 +5,6 @@ import swaggerJSDoc from 'swagger-jsdoc';
 import authRoutes from '../src/modules/users/user.route';
 import uploadRoutes from '../src/modules/upload/upload.route';
 import { connectDB } from './config/db';
-import { authenticate } from './middleware/authMiddlewares';
 import path from 'path';
 const express = require('express');
 const cors = require('cors');

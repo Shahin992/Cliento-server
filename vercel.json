@@ -13,7 +13,7 @@
     ],
     "routes": [
       {
-        "src": "/api-docs/(.*)",
+        "src": "/api-docs(?:/.*)?",
         "dest": "src/index.ts"
       },
       {
