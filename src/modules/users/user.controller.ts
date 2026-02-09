@@ -9,8 +9,6 @@ const userSchema = z.object({
   fullName: z.string(),
   email: z.string().email(),
   companyName: z.string(),
-  role: z.enum(['ADMIN', 'SUPER_ADMIN', 'USER']).default('ADMIN'),
-  isParentUser: z.boolean().default(true),
   profilePhoto: z.string().nullable().optional(),
   phoneNumber: z.string().min(1),
   location: z.string().nullable().optional(),
@@ -79,11 +77,18 @@ export const signin = async (req: Request, res: Response, next: NextFunction) =>
   try {
     const parsed = signinSchema.parse(req.body);
     const result = await loginUser(parsed);
-    if (!result) {
+    if (result.status === 'not_found') {
+      return sendError(res, {
+        success: false,
+        statusCode: 404,
+        message: 'User not found',
+      });
+    }
+    if (result.status === 'invalid_password') {
       return sendError(res, {
         success: false,
         statusCode: 401,
-        message: 'Unauthorized user',
+        message: 'Invalid password',
       });
     }
     const { password: _password, ...safeUser } = result.user.toObject();

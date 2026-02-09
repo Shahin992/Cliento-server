@@ -17,8 +17,11 @@ export const registerUser = async (payload: RegisterUserInput) => {
 
 export const loginUser = async (payload: SigninInput) => {
   const user = await User.findOne({ email: payload.email });
-  if (!user || !(await user.comparePassword(payload.password))) {
-    return null;
+  if (!user) {
+    return { status: 'not_found' as const };
+  }
+  if (!(await user.comparePassword(payload.password))) {
+    return { status: 'invalid_password' as const };
   }
 
   const token = jwt.sign(
@@ -26,7 +29,7 @@ export const loginUser = async (payload: SigninInput) => {
     process.env.JWT_TOKEN_SECRET || 'this_is_cliento_crm_token_secret',
     { expiresIn: '1h' }
   );
-  return { user, token };
+  return { status: 'ok' as const, user, token };
 };
 
 export const createPasswordResetOtp = async (email: string) => {

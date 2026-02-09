@@ -6,10 +6,16 @@ import { IUser } from './user.interface';
 
 const userSchema = new Schema<IUser>({
   fullName: { type: String, required: true },
+  companyName: { type: String, required: true },
   email: { type: String, required: true, unique: true, lowercase: true, trim: true },
   password: { type: String, required: true },
-  role: { type: String, enum: ['ADMIN', 'SUPER_ADMIN', 'USER'], default: 'ADMIN' },
-  isParentUser: { type: Boolean, default: true },
+  role: { type: String, enum: ['SUPER_ADMIN', 'OWNER', 'ADMIN', 'MEMBER'], default: 'OWNER' },
+  ownerInfo: {
+    type: {
+      ownerId: { type: Schema.Types.ObjectId, ref: 'User', default: null },
+    },
+    default: null,
+  },
   profilePhoto: { type: String, default: null },
   phoneNumber: { type: String, default: null },
   location: { type: String, default: null },
