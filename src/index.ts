@@ -11,16 +11,30 @@ const cors = require('cors');
 const PORT = process.env.PORT || 8000;
 const app = express();
 app.use(express.json());
+const allowedOrigins = new Set([
+    "http://localhost:5173",
+    "https://cliento-crm.vercel.app",
+    "https://cliento-server.vercel.app",
+]);
+
 app.use(
     cors({
-        origin: [
-            "http://localhost:5173", 
-            "https://cliento-server.vercel.app", 
-            "https://cliento-crm.vercel.app"
-        ],
-        credentials: true
+        origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
+            // Allow non-browser requests (no Origin) and known origins.
+            if (!origin || allowedOrigins.has(origin)) {
+                return callback(null, true);
+            }
+
+            return callback(new Error(`CORS blocked for origin: ${origin}`));
+        },
+        credentials: true,
+        methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        allowedHeaders: ["Content-Type", "Authorization"],
+        maxAge: 86400,
     })
 );
+
+app.options('*', cors());
 
 const swaggerServerUrl = process.env.SWAGGER_SERVER_URL || `http://localhost:${PORT}`;
 
