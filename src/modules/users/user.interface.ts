@@ -8,6 +8,7 @@ export interface IUser extends Document {
   email: string;
   password: string;
   role: UserRole;
+  teamId?: number | null;
   ownerInfo?: {
     ownerId: Types.ObjectId;
   } | null;
@@ -32,6 +33,7 @@ export type UserInput = {
   signature?: string | null;
   accessExpiresAt?: Date | null;
   planType?: 'trial' | 'paid';
+  teamId?: number | null;
 };
 
 export type RegisterUserInput = UserInput & {

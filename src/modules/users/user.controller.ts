@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { randomInt } from 'crypto';
 import { z, ZodError } from 'zod';
-import { createPasswordResetOtp, loginUser, registerUser, resetPasswordWithOtp, verifyPasswordResetOtp } from './user.service';
+import { createPasswordResetOtp, loginUser, registerUser, resetPasswordWithOtp, updateProfile, updateProfilePhoto, verifyPasswordResetOtp } from './user.service';
 import { sendError, sendResponse } from '../../../Utils/response';
 import { sendPasswordResetConfirmationEmail, sendPasswordResetOtpEmail, sendWelcomeEmail } from '../../config/email';
 
@@ -38,9 +38,21 @@ const resetPasswordSchema = z.object({
   newPassword: z.string().min(6),
 });
 
+const updateProfilePhotoSchema = z.object({
+  profilePhoto: z.string().nullable(),
+});
+
+const updateProfileSchema = z.object({
+  fullName: z.string().min(1).optional(),
+  companyName: z.string().min(1).optional(),
+  phoneNumber: z.string().min(1).optional(),
+  location: z.string().nullable().optional(),
+  timeZone: z.string().nullable().optional(),
+}).refine((data) => Object.keys(data).length > 0, {
+  message: 'At least one field is required',
+});
 
 export const signup = async (req: Request, res: Response, next:NextFunction) => {
-  console.log('checked request body=====>',req.body);
   try {
     const parsed = userSchema.parse(req.body);
     const tempPassword = String(randomInt(100000, 1000000));
@@ -240,6 +252,94 @@ export const resetPassword = async (req: Request, res: Response) => {
       success: false,
       statusCode: 500,
       message: 'Failed to reset password',
+      details: (error as Error).message,
+    });
+  }
+};
+
+export const updateProfilePhotoHandler = async (req: Request, res: Response) => {
+  try {
+    const parsed = updateProfilePhotoSchema.parse(req.body);
+    const userId = (req as any).user?.id;
+    if (!userId) {
+      return sendError(res, {
+        success: false,
+        statusCode: 401,
+        message: 'You have no access to this route',
+      });
+    }
+    const user = await updateProfilePhoto(userId, parsed.profilePhoto);
+    if (!user) {
+      return sendError(res, {
+        success: false,
+        statusCode: 404,
+        message: 'User not found',
+      });
+    }
+    const { password: _password, ...safeUser } = user.toObject();
+    return sendResponse(res, {
+      success: true,
+      statusCode: 200,
+      message: 'Profile photo updated successfully',
+      data: safeUser,
+    });
+  } catch (error) {
+    if (error instanceof ZodError) {
+      return sendError(res, {
+        success: false,
+        statusCode: 400,
+        message: 'Validation failed',
+        details: error.errors.map((e) => `${e.path.join('.')}: ${e.message}`).join(', '),
+      });
+    }
+    return sendError(res, {
+      success: false,
+      statusCode: 500,
+      message: 'Failed to update profile photo',
+      details: (error as Error).message,
+    });
+  }
+};
+
+export const updateProfileHandler = async (req: Request, res: Response) => {
+  try {
+    const parsed = updateProfileSchema.parse(req.body);
+    const userId = (req as any).user?.id;
+    if (!userId) {
+      return sendError(res, {
+        success: false,
+        statusCode: 401,
+        message: 'You have no access to this route',
+      });
+    }
+    const user = await updateProfile(userId, parsed);
+    if (!user) {
+      return sendError(res, {
+        success: false,
+        statusCode: 404,
+        message: 'User not found',
+      });
+    }
+    const { password: _password, ...safeUser } = user.toObject();
+    return sendResponse(res, {
+      success: true,
+      statusCode: 200,
+      message: 'Profile updated successfully',
+      data: safeUser,
+    });
+  } catch (error) {
+    if (error instanceof ZodError) {
+      return sendError(res, {
+        success: false,
+        statusCode: 400,
+        message: 'Validation failed',
+        details: error.errors.map((e) => `${e.path.join('.')}: ${e.message}`).join(', '),
+      });
+    }
+    return sendError(res, {
+      success: false,
+      statusCode: 500,
+      message: 'Failed to update profile',
       details: (error as Error).message,
     });
   }

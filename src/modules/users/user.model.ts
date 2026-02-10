@@ -10,6 +10,7 @@ const userSchema = new Schema<IUser>({
   email: { type: String, required: true, unique: true, lowercase: true, trim: true },
   password: { type: String, required: true },
   role: { type: String, enum: ['SUPER_ADMIN', 'OWNER', 'ADMIN', 'MEMBER'], default: 'OWNER' },
+  teamId: { type: Number, default: null },
   ownerInfo: {
     type: {
       ownerId: { type: Schema.Types.ObjectId, ref: 'User', default: null },
@@ -20,7 +21,6 @@ const userSchema = new Schema<IUser>({
   phoneNumber: { type: String, default: null },
   location: { type: String, default: null },
   timeZone: { type: String, default: null },
-  signature: { type: String, default: null },
   accessExpiresAt: { type: Date, default: null },
   planType: { type: String, enum: ['trial', 'paid'], default: 'trial' }
 }, { timestamps: true, versionKey: false });
@@ -28,6 +28,20 @@ const userSchema = new Schema<IUser>({
 userSchema.pre('save', async function(next) {
   if (!this.isModified('password')) return next();
   this.password = await bcrypt.hash(this.password, 10);
+  next();
+});
+
+userSchema.pre('save', async function(next) {
+  if (!this.isNew) return next();
+  if (this.role !== 'OWNER') return next();
+  if (this.teamId !== null && this.teamId !== undefined) return next();
+
+  const lastOwnerWithTeam = await User.findOne({ role: 'OWNER', teamId: { $ne: null } })
+    .sort({ teamId: -1 })
+    .select({ teamId: 1 });
+
+  const lastTeamId = lastOwnerWithTeam?.teamId ?? 0;
+  this.teamId = lastTeamId + 1;
   next();
 });
 

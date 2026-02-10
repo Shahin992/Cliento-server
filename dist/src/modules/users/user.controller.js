@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.resetPassword = exports.verifyOtp = exports.forgotPassword = exports.signin = exports.signup = void 0;
+exports.updateProfileHandler = exports.updateProfilePhotoHandler = exports.resetPassword = exports.verifyOtp = exports.forgotPassword = exports.signin = exports.signup = void 0;
 const crypto_1 = require("crypto");
 const zod_1 = require("zod");
 const user_service_1 = require("./user.service");
@@ -34,13 +34,24 @@ const resetPasswordSchema = zod_1.z.object({
     otp: zod_1.z.string().length(6),
     newPassword: zod_1.z.string().min(6),
 });
+const updateProfilePhotoSchema = zod_1.z.object({
+    profilePhoto: zod_1.z.string().nullable(),
+});
+const updateProfileSchema = zod_1.z.object({
+    fullName: zod_1.z.string().min(1).optional(),
+    companyName: zod_1.z.string().min(1).optional(),
+    phoneNumber: zod_1.z.string().min(1).optional(),
+    location: zod_1.z.string().nullable().optional(),
+    timeZone: zod_1.z.string().nullable().optional(),
+}).refine((data) => Object.keys(data).length > 0, {
+    message: 'At least one field is required',
+});
 const signup = async (req, res, next) => {
-    console.log('checked request body=====>', req.body);
     try {
         const parsed = userSchema.parse(req.body);
         const tempPassword = String((0, crypto_1.randomInt)(100000, 1000000));
         const user = await (0, user_service_1.registerUser)({ ...parsed, password: tempPassword });
-        void (0, email_1.sendWelcomeEmail)(user.email, user.fullName, tempPassword).catch((error) => {
+        await (0, email_1.sendWelcomeEmail)(user.email, user.fullName, tempPassword).catch((error) => {
             console.error('====> Failed to send welcome email', error);
         });
         const { password: _password, ...safeUser } = user.toObject();
@@ -131,7 +142,7 @@ const forgotPassword = async (req, res) => {
                 message: 'User not found',
             });
         }
-        void (0, email_1.sendPasswordResetOtpEmail)(result.user.email, result.user.fullName, result.otp).catch((error) => {
+        await (0, email_1.sendPasswordResetOtpEmail)(result.user.email, result.user.fullName, result.otp).catch((error) => {
             console.error('====> Failed to send password reset OTP email', error);
         });
         return (0, response_1.sendResponse)(res, {
@@ -218,7 +229,7 @@ const resetPassword = async (req, res) => {
                 message: 'Invalid or expired OTP',
             });
         }
-        void (0, email_1.sendPasswordResetConfirmationEmail)(result.user.email, result.user.fullName).catch((error) => {
+        await (0, email_1.sendPasswordResetConfirmationEmail)(result.user.email, result.user.fullName).catch((error) => {
             console.error('====> Failed to send password reset confirmation email', error);
         });
         return (0, response_1.sendResponse)(res, {
@@ -245,3 +256,93 @@ const resetPassword = async (req, res) => {
     }
 };
 exports.resetPassword = resetPassword;
+const updateProfilePhotoHandler = async (req, res) => {
+    try {
+        const parsed = updateProfilePhotoSchema.parse(req.body);
+        const userId = req.user?.id;
+        if (!userId) {
+            return (0, response_1.sendError)(res, {
+                success: false,
+                statusCode: 401,
+                message: 'You have no access to this route',
+            });
+        }
+        const user = await (0, user_service_1.updateProfilePhoto)(userId, parsed.profilePhoto);
+        if (!user) {
+            return (0, response_1.sendError)(res, {
+                success: false,
+                statusCode: 404,
+                message: 'User not found',
+            });
+        }
+        const { password: _password, ...safeUser } = user.toObject();
+        return (0, response_1.sendResponse)(res, {
+            success: true,
+            statusCode: 200,
+            message: 'Profile photo updated successfully',
+            data: safeUser,
+        });
+    }
+    catch (error) {
+        if (error instanceof zod_1.ZodError) {
+            return (0, response_1.sendError)(res, {
+                success: false,
+                statusCode: 400,
+                message: 'Validation failed',
+                details: error.errors.map((e) => `${e.path.join('.')}: ${e.message}`).join(', '),
+            });
+        }
+        return (0, response_1.sendError)(res, {
+            success: false,
+            statusCode: 500,
+            message: 'Failed to update profile photo',
+            details: error.message,
+        });
+    }
+};
+exports.updateProfilePhotoHandler = updateProfilePhotoHandler;
+const updateProfileHandler = async (req, res) => {
+    try {
+        const parsed = updateProfileSchema.parse(req.body);
+        const userId = req.user?.id;
+        if (!userId) {
+            return (0, response_1.sendError)(res, {
+                success: false,
+                statusCode: 401,
+                message: 'You have no access to this route',
+            });
+        }
+        const user = await (0, user_service_1.updateProfile)(userId, parsed);
+        if (!user) {
+            return (0, response_1.sendError)(res, {
+                success: false,
+                statusCode: 404,
+                message: 'User not found',
+            });
+        }
+        const { password: _password, ...safeUser } = user.toObject();
+        return (0, response_1.sendResponse)(res, {
+            success: true,
+            statusCode: 200,
+            message: 'Profile updated successfully',
+            data: safeUser,
+        });
+    }
+    catch (error) {
+        if (error instanceof zod_1.ZodError) {
+            return (0, response_1.sendError)(res, {
+                success: false,
+                statusCode: 400,
+                message: 'Validation failed',
+                details: error.errors.map((e) => `${e.path.join('.')}: ${e.message}`).join(', '),
+            });
+        }
+        return (0, response_1.sendError)(res, {
+            success: false,
+            statusCode: 500,
+            message: 'Failed to update profile',
+            details: error.message,
+        });
+    }
+};
+exports.updateProfileHandler = updateProfileHandler;

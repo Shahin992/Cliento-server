@@ -7,8 +7,8 @@ const passwordResetOtpSchema = new mongoose_1.Schema({
     email: { type: String, required: true, lowercase: true, trim: true, index: true },
     otpHash: { type: String, required: true },
     expiresAt: { type: Date, required: true, index: true },
-    deleteAt: { type: Date, required: true, index: true },
+    deleteAt: { type: Date, required: true },
     usedAt: { type: Date, default: null },
 }, { timestamps: true, versionKey: false });
-passwordResetOtpSchema.index({ deleteAt: 1 }, { expireAfterSeconds: 0 });
+passwordResetOtpSchema.index({ deleteAt: 1 }, { expireAfterSeconds: 0, name: 'deleteAt_ttl' });
 exports.PasswordResetOtp = (0, mongoose_1.model)('PasswordResetOtp', passwordResetOtpSchema);

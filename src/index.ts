@@ -3,6 +3,7 @@ import { Request, Response, NextFunction } from "express";
 import swaggerUi from 'swagger-ui-express';
 import swaggerJSDoc from 'swagger-jsdoc';
 import authRoutes from '../src/modules/users/user.route';
+import userRoutes from '../src/modules/users/users.route';
 import uploadRoutes from '../src/modules/upload/upload.route';
 import { connectDB } from './config/db';
 import path from 'path';
@@ -63,6 +64,7 @@ connectDB();
 
 
 app.use('/api/auth', authRoutes);
+app.use('/api/users', userRoutes);
 app.use('/api/upload', uploadRoutes);
 app.get('/', (_req: Request, res: Response) => {
     return res

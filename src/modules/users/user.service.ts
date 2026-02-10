@@ -97,3 +97,30 @@ export const resetPasswordWithOtp = async (email: string, otp: string, newPasswo
   await PasswordResetOtp.deleteOne({ _id: record._id });
   return { status: 'ok' as const, user };
 };
+
+export const updateProfilePhoto = async (userId: string, profilePhoto: string | null) => {
+  const user = await User.findByIdAndUpdate(
+    userId,
+    { profilePhoto },
+    { new: true }
+  );
+  return user;
+};
+
+export const updateProfile = async (
+  userId: string,
+  updates: {
+    fullName?: string;
+    companyName?: string;
+    phoneNumber?: string;
+    location?: string | null;
+    timeZone?: string | null;
+  }
+) => {
+  const user = await User.findByIdAndUpdate(
+    userId,
+    updates,
+    { new: true }
+  );
+  return user;
+};

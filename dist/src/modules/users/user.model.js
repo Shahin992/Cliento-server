@@ -12,6 +12,7 @@ const userSchema = new mongoose_1.Schema({
     email: { type: String, required: true, unique: true, lowercase: true, trim: true },
     password: { type: String, required: true },
     role: { type: String, enum: ['SUPER_ADMIN', 'OWNER', 'ADMIN', 'MEMBER'], default: 'OWNER' },
+    teamId: { type: Number, default: null },
     ownerInfo: {
         type: {
             ownerId: { type: mongoose_1.Schema.Types.ObjectId, ref: 'User', default: null },
@@ -22,7 +23,6 @@ const userSchema = new mongoose_1.Schema({
     phoneNumber: { type: String, default: null },
     location: { type: String, default: null },
     timeZone: { type: String, default: null },
-    signature: { type: String, default: null },
     accessExpiresAt: { type: Date, default: null },
     planType: { type: String, enum: ['trial', 'paid'], default: 'trial' }
 }, { timestamps: true, versionKey: false });
@@ -30,6 +30,20 @@ userSchema.pre('save', async function (next) {
     if (!this.isModified('password'))
         return next();
     this.password = await bcryptjs_1.default.hash(this.password, 10);
+    next();
+});
+userSchema.pre('save', async function (next) {
+    if (!this.isNew)
+        return next();
+    if (this.role !== 'OWNER')
+        return next();
+    if (this.teamId !== null && this.teamId !== undefined)
+        return next();
+    const lastOwnerWithTeam = await exports.User.findOne({ role: 'OWNER', teamId: { $ne: null } })
+        .sort({ teamId: -1 })
+        .select({ teamId: 1 });
+    const lastTeamId = lastOwnerWithTeam?.teamId ?? 0;
+    this.teamId = lastTeamId + 1;
     next();
 });
 userSchema.methods.comparePassword = function (candidatePassword) {

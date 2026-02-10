@@ -3,7 +3,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.resetPasswordWithOtp = exports.verifyPasswordResetOtp = exports.createPasswordResetOtp = exports.loginUser = exports.registerUser = void 0;
+exports.updateProfile = exports.updateProfilePhoto = exports.resetPasswordWithOtp = exports.verifyPasswordResetOtp = exports.createPasswordResetOtp = exports.loginUser = exports.registerUser = void 0;
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const bcryptjs_1 = __importDefault(require("bcryptjs"));
 const user_model_1 = require("./user.model");
@@ -85,3 +85,13 @@ const resetPasswordWithOtp = async (email, otp, newPassword) => {
     return { status: 'ok', user };
 };
 exports.resetPasswordWithOtp = resetPasswordWithOtp;
+const updateProfilePhoto = async (userId, profilePhoto) => {
+    const user = await user_model_1.User.findByIdAndUpdate(userId, { profilePhoto }, { new: true });
+    return user;
+};
+exports.updateProfilePhoto = updateProfilePhoto;
+const updateProfile = async (userId, updates) => {
+    const user = await user_model_1.User.findByIdAndUpdate(userId, updates, { new: true });
+    return user;
+};
+exports.updateProfile = updateProfile;

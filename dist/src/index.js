@@ -7,6 +7,7 @@ require("dotenv/config");
 const swagger_ui_express_1 = __importDefault(require("swagger-ui-express"));
 const swagger_jsdoc_1 = __importDefault(require("swagger-jsdoc"));
 const user_route_1 = __importDefault(require("../src/modules/users/user.route"));
+const users_route_1 = __importDefault(require("../src/modules/users/users.route"));
 const upload_route_1 = __importDefault(require("../src/modules/upload/upload.route"));
 const db_1 = require("./config/db");
 const path_1 = __importDefault(require("path"));
@@ -15,14 +16,25 @@ const cors = require('cors');
 const PORT = process.env.PORT || 8000;
 const app = express();
 app.use(express.json());
+const allowedOrigins = new Set([
+    "http://localhost:5173",
+    "https://cliento-crm.vercel.app",
+    "https://cliento-server.vercel.app",
+]);
 app.use(cors({
-    origin: [
-        "http://localhost:5173",
-        "https://cliento-server.vercel.app",
-        "https://cliento-crm.vercel.app"
-    ],
-    credentials: true
+    origin: (origin, callback) => {
+        // Allow non-browser requests (no Origin) and known origins.
+        if (!origin || allowedOrigins.has(origin)) {
+            return callback(null, true);
+        }
+        return callback(new Error(`CORS blocked for origin: ${origin}`));
+    },
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+    maxAge: 86400,
 }));
+app.options('*', cors());
 const swaggerServerUrl = process.env.SWAGGER_SERVER_URL || `http://localhost:${PORT}`;
 const swaggerSpec = (0, swagger_jsdoc_1.default)({
     definition: {
@@ -45,6 +57,7 @@ app.get('/api-docs', swagger_ui_express_1.default.setup(swaggerSpec));
 // Database connection
 (0, db_1.connectDB)();
 app.use('/api/auth', user_route_1.default);
+app.use('/api/users', users_route_1.default);
 app.use('/api/upload', upload_route_1.default);
 app.get('/', (_req, res) => {
     return res
