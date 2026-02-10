@@ -10,6 +10,8 @@ const getEmailConfig = () => {
 
 export const canSendEmail = () => {
   const { apiKey, senderEmail } = getEmailConfig();
+  console.log('apikey==>', apiKey)
+  console.log('sender===>',senderEmail)
   return Boolean(apiKey && senderEmail);
 };
 

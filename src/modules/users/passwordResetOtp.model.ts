@@ -15,12 +15,12 @@ const passwordResetOtpSchema = new Schema<IPasswordResetOtp>(
     email: { type: String, required: true, lowercase: true, trim: true, index: true },
     otpHash: { type: String, required: true },
     expiresAt: { type: Date, required: true, index: true },
-    deleteAt: { type: Date, required: true, index: true },
+    deleteAt: { type: Date, required: true },
     usedAt: { type: Date, default: null },
   },
   { timestamps: true, versionKey: false }
 );
 
-passwordResetOtpSchema.index({ deleteAt: 1 }, { expireAfterSeconds: 0 });
+passwordResetOtpSchema.index({ deleteAt: 1 }, { expireAfterSeconds: 0, name: 'deleteAt_ttl' });
 
 export const PasswordResetOtp = model<IPasswordResetOtp>('PasswordResetOtp', passwordResetOtpSchema);
