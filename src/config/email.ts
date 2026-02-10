@@ -10,8 +10,6 @@ const getEmailConfig = () => {
 
 export const canSendEmail = () => {
   const { apiKey, senderEmail } = getEmailConfig();
-  console.log('apikey==>', apiKey)
-  console.log('sender===>',senderEmail)
   return Boolean(apiKey && senderEmail);
 };
 
@@ -109,7 +107,6 @@ export const sendWelcomeEmail = async (to: string, name: string, tempPassword: s
 };
 
 export const sendPasswordResetOtpEmail = async (to: string, name: string, otp: string) => {
-  console.log('reset otp send function called');
   const { apiKey, senderEmail, senderName } = getEmailConfig();
   if (!canSendEmail()) {
     console.warn('====> Email not sent: missing Brevo API env vars');
@@ -157,7 +154,6 @@ export const sendPasswordResetOtpEmail = async (to: string, name: string, otp: s
         },
       },
       (res) => {
-        console.log('brevo res===>', res)
         let data = '';
         res.on('data', (chunk) => {
           data += chunk;
