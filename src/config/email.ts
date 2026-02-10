@@ -157,6 +157,7 @@ export const sendPasswordResetOtpEmail = async (to: string, name: string, otp: s
         },
       },
       (res) => {
+        console.log('brevo res===>', res)
         let data = '';
         res.on('data', (chunk) => {
           data += chunk;
