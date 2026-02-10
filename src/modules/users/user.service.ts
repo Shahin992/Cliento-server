@@ -124,3 +124,15 @@ export const updateProfile = async (
   );
   return user;
 };
+
+export const changePassword = async (userId: string, currentPassword: string, newPassword: string) => {
+  const user = await User.findById(userId);
+  if (!user) return { status: 'not_found' as const };
+
+  const ok = await user.comparePassword(currentPassword);
+  if (!ok) return { status: 'invalid_password' as const };
+
+  user.password = newPassword;
+  await user.save();
+  return { status: 'ok' as const };
+};

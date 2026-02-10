@@ -14,6 +14,7 @@ const app = express();
 app.use(express.json());
 const allowedOrigins = new Set([
     "http://localhost:5173",
+    "http://localhost:8000",
     "https://cliento-crm.vercel.app",
     "https://cliento-server.vercel.app",
 ]);
@@ -52,6 +53,16 @@ const swaggerSpec = swaggerJSDoc({
                 url: swaggerServerUrl,
             },
         ],
+        components: {
+            securitySchemes: {
+                bearerAuth: {
+                    type: 'http',
+                    scheme: 'bearer',
+                    bearerFormat: 'JWT',
+                },
+            },
+        },
+        security: [{ bearerAuth: [] }],
     },
     apis: [path.resolve(process.cwd(), 'src/modules/**/*.ts')],
 });

@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { randomInt } from 'crypto';
 import { z, ZodError } from 'zod';
-import { createPasswordResetOtp, loginUser, registerUser, resetPasswordWithOtp, updateProfile, updateProfilePhoto, verifyPasswordResetOtp } from './user.service';
+import { changePassword, createPasswordResetOtp, loginUser, registerUser, resetPasswordWithOtp, updateProfile, updateProfilePhoto, verifyPasswordResetOtp } from './user.service';
 import { sendError, sendResponse } from '../../../Utils/response';
 import { sendPasswordResetConfirmationEmail, sendPasswordResetOtpEmail, sendWelcomeEmail } from '../../config/email';
 
@@ -38,6 +38,10 @@ const resetPasswordSchema = z.object({
   newPassword: z.string().min(6),
 });
 
+const changePasswordSchema = z.object({
+  currentPassword: z.string().min(6),
+  newPassword: z.string().min(6),
+});
 const updateProfilePhotoSchema = z.object({
   profilePhoto: z.string().nullable(),
 });
@@ -340,6 +344,55 @@ export const updateProfileHandler = async (req: Request, res: Response) => {
       success: false,
       statusCode: 500,
       message: 'Failed to update profile',
+      details: (error as Error).message,
+    });
+  }
+};
+
+export const changePasswordHandler = async (req: Request, res: Response) => {
+  try {
+    const parsed = changePasswordSchema.parse(req.body);
+    const userId = (req as any).user?.id;
+    if (!userId) {
+      return sendError(res, {
+        success: false,
+        statusCode: 401,
+        message: 'You have no access to this route',
+      });
+    }
+    const result = await changePassword(userId, parsed.currentPassword, parsed.newPassword);
+    if (result.status === 'not_found') {
+      return sendError(res, {
+        success: false,
+        statusCode: 404,
+        message: 'User not found',
+      });
+    }
+    if (result.status === 'invalid_password') {
+      return sendError(res, {
+        success: false,
+        statusCode: 400,
+        message: 'Current password is incorrect',
+      });
+    }
+    return sendResponse(res, {
+      success: true,
+      statusCode: 200,
+      message: 'Password changed successfully',
+    });
+  } catch (error) {
+    if (error instanceof ZodError) {
+      return sendError(res, {
+        success: false,
+        statusCode: 400,
+        message: 'Validation failed',
+        details: error.errors.map((e) => `${e.path.join('.')}: ${e.message}`).join(', '),
+      });
+    }
+    return sendError(res, {
+      success: false,
+      statusCode: 500,
+      message: 'Failed to change password',
       details: (error as Error).message,
     });
   }

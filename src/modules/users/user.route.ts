@@ -1,5 +1,6 @@
 import { Router } from 'express';
-import { forgotPassword, resetPassword, signin, signup, verifyOtp } from './user.controller';
+import { changePasswordHandler, forgotPassword, resetPassword, signin, signup, verifyOtp } from './user.controller';
+import { authenticate } from '../../middleware/authMiddlewares';
 
 const router = Router();
 
@@ -162,5 +163,42 @@ router.post('/verify-otp', verifyOtp);
  *         description: Invalid or expired OTP
  */
 router.post('/reset-password', resetPassword);
+
+/**
+ * @swagger
+ * /api/auth/change-password:
+ *   post:
+ *     tags:
+ *       - Auth
+ *     summary: Change password (authenticated)
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - currentPassword
+ *               - newPassword
+ *             properties:
+ *               currentPassword:
+ *                 type: string
+ *                 format: password
+ *               newPassword:
+ *                 type: string
+ *                 format: password
+ *     responses:
+ *       200:
+ *         description: Password changed successfully
+ *       400:
+ *         description: Current password is incorrect
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: User not found
+ */
+router.post('/change-password', authenticate, changePasswordHandler);
 
 export default router;
