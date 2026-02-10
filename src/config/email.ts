@@ -107,6 +107,7 @@ export const sendWelcomeEmail = async (to: string, name: string, tempPassword: s
 };
 
 export const sendPasswordResetOtpEmail = async (to: string, name: string, otp: string) => {
+  console.log('reset otp send function called');
   const { apiKey, senderEmail, senderName } = getEmailConfig();
   if (!canSendEmail()) {
     console.warn('====> Email not sent: missing Brevo API env vars');
