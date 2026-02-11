@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { randomInt } from 'crypto';
 import { z, ZodError } from 'zod';
-import { changePassword, createPasswordResetOtp, loginUser, registerUser, resetPasswordWithOtp, updateProfile, updateProfilePhoto, verifyPasswordResetOtp } from './user.service';
+import { changePassword, createPasswordResetOtp, getMyProfile, loginUser, registerUser, resetPasswordWithOtp, updateProfile, updateProfilePhoto, verifyPasswordResetOtp } from './user.service';
 import { sendError, sendResponse } from '../../../Utils/response';
 import { sendPasswordResetConfirmationEmail, sendPasswordResetOtpEmail, sendWelcomeEmail } from '../../config/email';
 
@@ -108,7 +108,7 @@ export const signin = async (req: Request, res: Response, next: NextFunction) =>
       });
     }
     const { password: _password, ...safeUser } = result.user.toObject();
-    res.cookie('access_token', result.token, {
+    res.cookie('cliento_token', result.token, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
@@ -134,6 +134,29 @@ export const signin = async (req: Request, res: Response, next: NextFunction) =>
       success: false,
       statusCode: 500,
       message: 'Failed to login user',
+      details: (error as Error).message,
+    });
+  }
+};
+
+export const logout = async (_req: Request, res: Response) => {
+  try {
+    res.clearCookie('cliento_token', {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+    });
+
+    return sendResponse(res, {
+      success: true,
+      statusCode: 200,
+      message: 'User logged out successfully',
+    });
+  } catch (error) {
+    return sendError(res, {
+      success: false,
+      statusCode: 500,
+      message: 'Failed to logout user',
       details: (error as Error).message,
     });
   }
@@ -393,6 +416,43 @@ export const changePasswordHandler = async (req: Request, res: Response) => {
       success: false,
       statusCode: 500,
       message: 'Failed to change password',
+      details: (error as Error).message,
+    });
+  }
+};
+
+export const getMyProfileHandler = async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).user?.id;
+    if (!userId) {
+      return sendError(res, {
+        success: false,
+        statusCode: 401,
+        message: 'You have no access to this route',
+      });
+    }
+
+    const user = await getMyProfile(userId);
+    if (!user) {
+      return sendError(res, {
+        success: false,
+        statusCode: 404,
+        message: 'User not found',
+      });
+    }
+
+    const { password: _password, ...safeUser } = user.toObject();
+    return sendResponse(res, {
+      success: true,
+      statusCode: 200,
+      message: 'Profile fetched successfully',
+      data: safeUser,
+    });
+  } catch (error) {
+    return sendError(res, {
+      success: false,
+      statusCode: 500,
+      message: 'Failed to fetch profile',
       details: (error as Error).message,
     });
   }

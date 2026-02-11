@@ -17,7 +17,7 @@ export const authenticate = (req: Request, res: Response, next: NextFunction) =>
   const bearer = req.headers.authorization?.startsWith('Bearer ')
     ? req.headers.authorization.split(' ')[1]
     : undefined;
-  const token = cookies.access_token || bearer;
+  const token = cookies['cliento_token'] || bearer;
 
   if (!token) {
     return res.status(401).json({ success: false, message: 'You have no access to this route' });

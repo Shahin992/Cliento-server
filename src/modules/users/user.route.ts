@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { changePasswordHandler, forgotPassword, resetPassword, signin, signup, verifyOtp } from './user.controller';
+import { changePasswordHandler, forgotPassword, logout, resetPassword, signin, signup, verifyOtp } from './user.controller';
 import { authenticate } from '../../middleware/authMiddlewares';
 
 const router = Router();
@@ -70,6 +70,23 @@ router.post('/signup', signup);
  *         description: Unauthorized user
  */
 router.post('/signin', signin);
+
+/**
+ * @swagger
+ * /api/auth/logout:
+ *   post:
+ *     tags:
+ *       - Auth
+ *     summary: Logout authenticated user
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: User logged out successfully
+ *       401:
+ *         description: Unauthorized
+ */
+router.post('/logout', authenticate, logout);
 
 /**
  * @swagger

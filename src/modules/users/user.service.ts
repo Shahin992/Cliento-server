@@ -136,3 +136,8 @@ export const changePassword = async (userId: string, currentPassword: string, ne
   await user.save();
   return { status: 'ok' as const };
 };
+
+export const getMyProfile = async (userId: string) => {
+  const user = await User.findById(userId);
+  return user;
+};

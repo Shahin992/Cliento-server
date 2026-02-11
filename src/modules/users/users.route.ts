@@ -1,8 +1,27 @@
 import { Router } from 'express';
 import { authenticate } from '../../middleware/authMiddlewares';
-import { updateProfileHandler, updateProfilePhotoHandler } from './user.controller';
+import { getMyProfileHandler, updateProfileHandler, updateProfilePhotoHandler } from './user.controller';
 
 const router = Router();
+
+/**
+ * @swagger
+ * /api/users/me:
+ *   get:
+ *     tags:
+ *       - Users
+ *     summary: Get my profile
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Profile fetched successfully
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: User not found
+ */
+router.get('/me', authenticate, getMyProfileHandler);
 
 /**
  * @swagger
