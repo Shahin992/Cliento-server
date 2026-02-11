@@ -1,0 +1,169 @@
+import { Router } from 'express';
+import { authenticate, authorize } from '../../middleware/authMiddlewares';
+import {
+  createContactHandler,
+  deleteContactHandler,
+  getContactByIdHandler,
+  listContactsHandler,
+  updateContactHandler,
+} from './contact.controller';
+
+const router = Router();
+const CONTACT_ACCESS_ROLES = ['OWNER', 'ADMIN', 'MEMBER'];
+
+/**
+ * @swagger
+ * /api/contacts:
+ *   post:
+ *     tags:
+ *       - Contacts
+ *     summary: Create a contact
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - firstName
+ *             properties:
+ *               firstName:
+ *                 type: string
+ *               lastName:
+ *                 type: string
+ *                 nullable: true
+ *               photoUrl:
+ *                 type: string
+ *                 nullable: true
+ *               emails:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *               phones:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *               address:
+ *                 type: object
+ *                 properties:
+ *                   street:
+ *                     type: string
+ *                   city:
+ *                     type: string
+ *                   state:
+ *                     type: string
+ *                   postalCode:
+ *                     type: string
+ *                   zipCode:
+ *                     type: string
+ *                   country:
+ *                     type: string
+ *     responses:
+ *       201:
+ *         description: Contact created successfully
+ */
+router.post('/', authenticate, authorize(CONTACT_ACCESS_ROLES), createContactHandler);
+
+/**
+ * @swagger
+ * /api/contacts:
+ *   get:
+ *     tags:
+ *       - Contacts
+ *     summary: List my contacts
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: q
+ *         schema:
+ *           type: string
+ *         description: Search by name, company, email, or phone
+ *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Contacts fetched successfully
+ */
+router.get('/', authenticate, authorize(CONTACT_ACCESS_ROLES), listContactsHandler);
+
+/**
+ * @swagger
+ * /api/contacts/{id}:
+ *   get:
+ *     tags:
+ *       - Contacts
+ *     summary: Get a contact by id
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Contact fetched successfully
+ *       404:
+ *         description: Contact not found
+ */
+router.get('/:id', authenticate, authorize(CONTACT_ACCESS_ROLES), getContactByIdHandler);
+
+/**
+ * @swagger
+ * /api/contacts/{id}:
+ *   patch:
+ *     tags:
+ *       - Contacts
+ *     summary: Update a contact
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *     responses:
+ *       200:
+ *         description: Contact updated successfully
+ *       404:
+ *         description: Contact not found
+ */
+router.patch('/:id', authenticate, authorize(CONTACT_ACCESS_ROLES), updateContactHandler);
+
+/**
+ * @swagger
+ * /api/contacts/{id}:
+ *   delete:
+ *     tags:
+ *       - Contacts
+ *     summary: Delete a contact
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Contact deleted successfully
+ *       404:
+ *         description: Contact not found
+ */
+router.delete('/:id', authenticate, authorize(CONTACT_ACCESS_ROLES), deleteContactHandler);
+
+export default router;

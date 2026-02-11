@@ -5,6 +5,7 @@ import swaggerJSDoc from 'swagger-jsdoc';
 import authRoutes from '../src/modules/users/user.route';
 import userRoutes from '../src/modules/users/users.route';
 import uploadRoutes from '../src/modules/upload/upload.route';
+import contactRoutes from '../src/modules/contacts/contact.route';
 import { connectDB } from './config/db';
 import path from 'path';
 const express = require('express');
@@ -48,6 +49,12 @@ const swaggerSpec = swaggerJSDoc({
             version: '1.0.0',
             description: 'API documentation for Clento Server',
         },
+        tags: [
+            { name: 'Upload' },
+            { name: 'Auth' },
+            { name: 'Users' },
+            { name: 'Contacts' },
+        ],
         servers: [
             {
                 url: swaggerServerUrl,
@@ -77,6 +84,7 @@ connectDB();
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/upload', uploadRoutes);
+app.use('/api/contacts', contactRoutes);
 app.get('/', (_req: Request, res: Response) => {
     return res
         .status(200)
