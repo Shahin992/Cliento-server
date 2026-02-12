@@ -27,7 +27,7 @@ export const loginUser = async (payload: SigninInput) => {
   const token = jwt.sign(
     { id: user._id, role: user.role },
     process.env.JWT_TOKEN_SECRET || 'this_is_cliento_crm_token_secret',
-    { expiresIn: '1h' }
+    { expiresIn: '7d' }
   );
   return { status: 'ok' as const, user, token };
 };
