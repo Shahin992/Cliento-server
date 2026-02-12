@@ -126,7 +126,7 @@ router.get('/:id', authenticate, authorize(CONTACT_ACCESS_ROLES), getContactById
 /**
  * @swagger
  * /api/contacts/{id}:
- *   patch:
+ *   put:
  *     tags:
  *       - Contacts
  *     summary: Update a contact
@@ -150,7 +150,7 @@ router.get('/:id', authenticate, authorize(CONTACT_ACCESS_ROLES), getContactById
  *       404:
  *         description: Contact not found
  */
-router.patch('/:id', authenticate, authorize(CONTACT_ACCESS_ROLES), updateContactHandler);
+router.put('/:id', authenticate, authorize(CONTACT_ACCESS_ROLES), updateContactHandler);
 
 /**
  * @swagger

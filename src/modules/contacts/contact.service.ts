@@ -35,6 +35,7 @@ export const createContact = async (payload: CreateContactInput) => {
   if (normalizedEmails.length > 0) {
     const existing = await Contact.findOne({
       ownerId: payload.ownerId,
+      deletedAt: null,
       emails: { $in: normalizedEmails },
     }).select('_id emails firstName lastName');
 
@@ -77,8 +78,30 @@ const CONTACT_LIST_FIELDS = [
   'updatedAt',
 ].join(' ');
 
+const CONTACT_DETAIL_FIELDS = [
+  '_id',
+  'ownerId',
+  'firstName',
+  'lastName',
+  'photoUrl',
+  'emails',
+  'phones',
+  'companyName',
+  'jobTitle',
+  'website',
+  'leadSource',
+  'status',
+  'tags',
+  'address',
+  'notes',
+  'createdBy',
+  'updatedBy',
+  'createdAt',
+  'updatedAt',
+].join(' ');
+
 export const listContacts = async (ownerId: string, query: ListContactsQuery): Promise<ListContactsResult> => {
-  const conditions: FilterQuery<IContact>[] = [{ ownerId }];
+  const conditions: FilterQuery<IContact>[] = [{ ownerId, deletedAt: null }];
 
   if (query.search) {
     const regex = createRegex(query.search);
@@ -142,10 +165,12 @@ export const listContacts = async (ownerId: string, query: ListContactsQuery): P
 };
 
 export const getContactById = async (ownerId: string, id: string) => {
-  const contact = await Contact.findOne({ _id: id, ownerId }).populate({
-    path: 'ownerId',
-    select: '_id fullName email companyName profilePhoto role phoneNumber location timeZone teamId createdAt updatedAt',
-  });
+  const contact = await Contact.findOne({ _id: id, ownerId, deletedAt: null })
+    .select(CONTACT_DETAIL_FIELDS)
+    .populate({
+      path: 'ownerId',
+      select: '_id fullName email companyName profilePhoto role phoneNumber location timeZone teamId createdAt updatedAt',
+    });
   return contact;
 };
 
@@ -160,7 +185,7 @@ export const updateContact = async (ownerId: string, id: string, updates: Update
   }
 
   const contact = await Contact.findOneAndUpdate(
-    { _id: id, ownerId },
+    { _id: id, ownerId, deletedAt: null },
     nextUpdates,
     { new: true }
   );
@@ -168,6 +193,14 @@ export const updateContact = async (ownerId: string, id: string, updates: Update
 };
 
 export const deleteContact = async (ownerId: string, id: string) => {
-  const contact = await Contact.findOneAndDelete({ _id: id, ownerId });
+  const contact = await Contact.findOneAndUpdate(
+    { _id: id, ownerId, deletedAt: null },
+    {
+      deletedAt: new Date(),
+      deletedBy: ownerId,
+      updatedBy: ownerId,
+    },
+    { new: true }
+  );
   return contact;
 };

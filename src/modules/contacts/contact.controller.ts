@@ -27,42 +27,69 @@ const LENGTH = {
 
 const trimmedRequiredString = z.string().trim().min(1);
 const optionalBoundedString = (max: number) => z.string().trim().min(1).max(max).nullable().optional();
+const optionalNullableBoundedStringFromInput = (max: number) => z.preprocess(
+  (value) => {
+    if (value === undefined) return undefined;
+    if (value === null) return null;
+    if (typeof value !== 'string') return value;
+    const trimmed = value.trim();
+    return trimmed.length === 0 ? null : trimmed;
+  },
+  z.string().max(max).nullable().optional()
+);
 
 const contactEmailSchema = z.string().trim().max(LENGTH.email).email();
 const contactPhoneSchema = z.string().trim().min(LENGTH.phoneMin).max(LENGTH.phoneMax);
+const contactEmailsInputSchema = z.preprocess(
+  (value) => {
+    if (value === undefined || value === null) return undefined;
+    const values = Array.isArray(value) ? value : [value];
+    return values
+      .filter((entry) => typeof entry === 'string')
+      .map((entry) => entry.trim())
+      .filter((entry) => entry.length > 0);
+  },
+  z.array(contactEmailSchema).max(LENGTH.contactItemsMax).optional()
+);
+const contactPhonesInputSchema = z.preprocess(
+  (value) => {
+    if (value === undefined || value === null) return undefined;
+    const values = Array.isArray(value) ? value : [value];
+    return values
+      .filter((entry) => typeof entry === 'string')
+      .map((entry) => entry.trim())
+      .filter((entry) => entry.length > 0);
+  },
+  z.array(contactPhoneSchema).max(LENGTH.contactItemsMax).optional()
+);
+const contactAddressSchema = z.object({
+  street: optionalNullableBoundedStringFromInput(LENGTH.street),
+  city: optionalNullableBoundedStringFromInput(LENGTH.city),
+  state: optionalNullableBoundedStringFromInput(LENGTH.state),
+  postalCode: optionalNullableBoundedStringFromInput(LENGTH.postalCode),
+  zipCode: optionalNullableBoundedStringFromInput(LENGTH.postalCode),
+  country: optionalNullableBoundedStringFromInput(LENGTH.country),
+}).nullable().optional();
 
 const contactBaseSchema = {
   firstName: trimmedRequiredString.max(LENGTH.firstName),
   lastName: optionalBoundedString(LENGTH.lastName),
   photoUrl: z.string().trim().max(LENGTH.photoUrl).url().nullable().optional(),
-  emails: z.array(contactEmailSchema).max(LENGTH.contactItemsMax).optional(),
-  phones: z.array(contactPhoneSchema).max(LENGTH.contactItemsMax).optional(),
+  emails: contactEmailsInputSchema,
+  phones: contactPhonesInputSchema,
   companyName: optionalBoundedString(LENGTH.companyName),
   jobTitle: optionalBoundedString(LENGTH.jobTitle),
   website: z.string().trim().max(LENGTH.website).url().nullable().optional(),
   leadSource: z.enum(['website', 'referral', 'social', 'ads', 'manual', 'other']).optional(),
   status: z.enum(['lead', 'qualified', 'customer', 'inactive']).optional(),
   tags: z.array(z.string().trim().min(1).max(LENGTH.tag)).max(LENGTH.tagsMax).optional(),
-  address: z.object({
-    street: optionalBoundedString(LENGTH.street),
-    city: optionalBoundedString(LENGTH.city),
-    state: optionalBoundedString(LENGTH.state),
-    postalCode: optionalBoundedString(LENGTH.postalCode),
-    country: optionalBoundedString(LENGTH.country),
-  }).nullable().optional(),
+  address: contactAddressSchema,
   notes: optionalBoundedString(LENGTH.notes),
 };
 
 const createContactSchema = z.object({
   ...contactBaseSchema,
-  address: z.object({
-    street: optionalBoundedString(LENGTH.street),
-    city: optionalBoundedString(LENGTH.city),
-    state: optionalBoundedString(LENGTH.state),
-    postalCode: optionalBoundedString(LENGTH.postalCode),
-    zipCode: optionalBoundedString(LENGTH.postalCode),
-    country: optionalBoundedString(LENGTH.country),
-  }).nullable().optional(),
+  address: contactAddressSchema,
 }).refine((data) => Boolean(
   (data.emails && data.emails.length) ||
   (data.phones && data.phones.length)
@@ -228,13 +255,14 @@ export const getContactByIdHandler = async (req: Request, res: Response) => {
     const ownerDetails = (contactObj as any).ownerId && typeof (contactObj as any).ownerId === 'object'
       ? (contactObj as any).ownerId
       : null;
+    const { ownerId: _ownerId, ...contactWithoutOwnerId } = contactObj as any;
 
     return sendResponse(res, {
       success: true,
       statusCode: 200,
       message: 'Contact fetched successfully',
       data: {
-        ...contactObj,
+        ...contactWithoutOwnerId,
         ownerDetails,
       },
     });
@@ -260,8 +288,22 @@ export const updateContactHandler = async (req: Request, res: Response) => {
     }
 
     const parsed = updateContactSchema.parse(req.body);
+    const { address, ...rest } = parsed;
+    const normalizedAddress = address === undefined
+      ? undefined
+      : address === null
+        ? null
+        : {
+            street: address.street ?? null,
+            city: address.city ?? null,
+            state: address.state ?? null,
+            postalCode: address.postalCode ?? address.zipCode ?? null,
+            country: address.country ?? null,
+          };
+
     const contact = await updateContact(userId, req.params.id, {
-      ...parsed,
+      ...rest,
+      address: normalizedAddress,
       updatedBy: userId,
     });
 

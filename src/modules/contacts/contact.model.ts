@@ -62,6 +62,8 @@ const contactSchema = new Schema<IContact>({
   notes: { type: String, default: null, maxlength: LENGTH.notes },
   createdBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
   updatedBy: { type: Schema.Types.ObjectId, ref: 'User', default: null },
+  deletedAt: { type: Date, default: null, index: true },
+  deletedBy: { type: Schema.Types.ObjectId, ref: 'User', default: null },
 }, { timestamps: true, versionKey: false });
 
 contactSchema.path('emails').validate(function (value: unknown[]) {
@@ -74,5 +76,6 @@ contactSchema.path('phones').validate(function (value: unknown[]) {
 
 contactSchema.index({ ownerId: 1, emails: 1 });
 contactSchema.index({ ownerId: 1, phones: 1 });
+contactSchema.index({ ownerId: 1, deletedAt: 1 });
 
 export const Contact = model<IContact>('Contacts', contactSchema);

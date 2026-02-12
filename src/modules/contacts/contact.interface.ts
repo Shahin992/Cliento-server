@@ -25,6 +25,8 @@ export interface IContact extends Document {
   notes?: string | null;
   createdBy: Types.ObjectId;
   updatedBy?: Types.ObjectId | null;
+  deletedAt?: Date | null;
+  deletedBy?: Types.ObjectId | null;
 }
 
 export type CreateContactInput = {
