@@ -22,6 +22,7 @@ const LENGTH = {
   country: 25,
   notes: 2000,
   contactItemsMax: 10,
+  listSearch: 100,
 } as const;
 
 const trimmedRequiredString = z.string().trim().min(1);
@@ -76,7 +77,22 @@ const updateContactSchema = z.object({
   message: 'At least one field is required',
 });
 
+const listContactsQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(500).default(10),
+  search: z.preprocess(
+    (value) => {
+      if (typeof value !== 'string') return undefined;
+      const trimmed = value.trim();
+      return trimmed.length > 0 ? trimmed : undefined;
+    },
+    z.string().max(LENGTH.listSearch).optional()
+  ),
+});
+
 const getUserIdFromReq = (req: Request) => (req as any).user?.id as string | undefined;
+
+const getQueryValue = (value: unknown) => (typeof value === 'string' ? value : undefined);
 
 export const createContactHandler = async (req: Request, res: Response) => {
   try {
@@ -155,10 +171,13 @@ export const listContactsHandler = async (req: Request, res: Response) => {
       });
     }
 
-    const contacts = await listContacts(userId, {
-      q: typeof req.query.q === 'string' ? req.query.q : undefined,
-      status: typeof req.query.status === 'string' ? req.query.status : undefined,
+    const query = listContactsQuerySchema.parse({
+      page: getQueryValue(req.query.page),
+      limit: getQueryValue(req.query.limit),
+      search: getQueryValue(req.query.search) ?? getQueryValue(req.query.q),
     });
+
+    const contacts = await listContacts(userId, query);
 
     return sendResponse(res, {
       success: true,
@@ -167,6 +186,15 @@ export const listContactsHandler = async (req: Request, res: Response) => {
       data: contacts,
     });
   } catch (error) {
+    if (error instanceof ZodError) {
+      return sendError(res, {
+        success: false,
+        statusCode: 400,
+        message: 'Validation failed',
+        details: error.errors.map((e) => `${e.path.join('.')}: ${e.message}`).join(', '),
+      });
+    }
+
     return sendError(res, {
       success: false,
       statusCode: 500,
@@ -197,7 +225,9 @@ export const getContactByIdHandler = async (req: Request, res: Response) => {
     }
 
     const contactObj = contact.toObject();
-    // const ownerDetails = contactObj.ownerId;
+    const ownerDetails = (contactObj as any).ownerId && typeof (contactObj as any).ownerId === 'object'
+      ? (contactObj as any).ownerId
+      : null;
 
     return sendResponse(res, {
       success: true,
@@ -205,7 +235,7 @@ export const getContactByIdHandler = async (req: Request, res: Response) => {
       message: 'Contact fetched successfully',
       data: {
         ...contactObj,
-        // ownerDetails,
+        ownerDetails,
       },
     });
   } catch (error) {

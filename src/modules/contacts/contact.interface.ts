@@ -53,3 +53,21 @@ export type CreateContactInput = {
 };
 
 export type UpdateContactInput = Partial<Omit<CreateContactInput, 'ownerId' | 'createdBy'>>;
+
+export type ListContactsQuery = {
+  page: number;
+  limit: number;
+  search?: string;
+};
+
+export type ListContactsResult = {
+  contacts: IContact[];
+  pagination: {
+    page: number;
+    limit: number;
+    total?: number;
+    totalPages?: number;
+    hasNextPage: boolean;
+    hasPrevPage: boolean;
+  };
+};

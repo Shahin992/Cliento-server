@@ -1,6 +1,6 @@
 import { FilterQuery } from 'mongoose';
 import { Contact } from './contact.model';
-import { CreateContactInput, IContact, UpdateContactInput } from './contact.interface';
+import { CreateContactInput, IContact, ListContactsQuery, ListContactsResult, UpdateContactInput } from './contact.interface';
 
 const normalizeEmails = (emails?: string[]) => {
   if (!emails) return undefined;
@@ -57,32 +57,94 @@ export const createContact = async (payload: CreateContactInput) => {
   return { status: 'ok' as const, contact };
 };
 
-export const listContacts = async (ownerId: string, query?: { q?: string; status?: string }) => {
-  const filter: FilterQuery<IContact> = { ownerId };
+const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-  if (query?.status) {
-    filter.status = query.status;
+const createRegex = (value: string) => new RegExp(escapeRegExp(value.trim()), 'i');
+
+const CONTACT_LIST_FIELDS = [
+  '_id',
+  'ownerId',
+  'firstName',
+  'lastName',
+  'photoUrl',
+  'emails',
+  'phones',
+  'companyName',
+  'address',
+  'createdBy',
+  'updatedBy',
+  'createdAt',
+  'updatedAt',
+].join(' ');
+
+export const listContacts = async (ownerId: string, query: ListContactsQuery): Promise<ListContactsResult> => {
+  const conditions: FilterQuery<IContact>[] = [{ ownerId }];
+
+  if (query.search) {
+    const regex = createRegex(query.search);
+    conditions.push({
+      $or: [
+        { firstName: regex },
+        { lastName: regex },
+        { emails: regex },
+        { phones: regex },
+      ],
+    });
   }
 
-  if (query?.q) {
-    const regex = new RegExp(query.q.trim(), 'i');
-    filter.$or = [
-      { firstName: regex },
-      { lastName: regex },
-      { companyName: regex },
-      { emails: regex },
-      { phones: regex },
-    ];
+  const filter = conditions.length === 1 ? conditions[0] : { $and: conditions };
+  const skip = (query.page - 1) * query.limit;
+  const hasPrevPage = query.page > 1;
+
+  if (query.page === 1) {
+    const [contacts, total] = await Promise.all([
+      Contact.find(filter)
+        .select(CONTACT_LIST_FIELDS)
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(query.limit),
+      Contact.countDocuments(filter),
+    ]);
+
+    const totalPages = Math.ceil(total / query.limit);
+
+    return {
+      contacts,
+      pagination: {
+        page: query.page,
+        limit: query.limit,
+        total,
+        totalPages,
+        hasNextPage: query.page < totalPages,
+        hasPrevPage,
+      },
+    };
   }
 
-  const contacts = await Contact.find(filter).sort({ createdAt: -1 });
-  return contacts;
+  const contacts = await Contact.find(filter)
+    .select(CONTACT_LIST_FIELDS)
+    .sort({ createdAt: -1 })
+    .skip(skip)
+    .limit(query.limit + 1);
+
+  const hasNextPage = contacts.length > query.limit;
+  const pageContacts = hasNextPage ? contacts.slice(0, query.limit) : contacts;
+
+  return {
+    contacts: pageContacts,
+    pagination: {
+      page: query.page,
+      limit: query.limit,
+      hasNextPage,
+      hasPrevPage,
+    },
+  };
 };
 
 export const getContactById = async (ownerId: string, id: string) => {
   const contact = await Contact.findOne({ _id: id, ownerId }).populate({
     path: 'ownerId',
-    select: '_id fullName email companyName profilePhoto role',
+    select: '_id fullName email companyName profilePhoto role phoneNumber location timeZone teamId createdAt updatedAt',
   });
   return contact;
 };

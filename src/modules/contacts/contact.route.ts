@@ -34,6 +34,9 @@ const CONTACT_ACCESS_ROLES = ['OWNER', 'ADMIN', 'MEMBER'];
  *               lastName:
  *                 type: string
  *                 nullable: true
+ *               companyName:
+ *                 type: string
+ *                 nullable: true
  *               photoUrl:
  *                 type: string
  *                 nullable: true
@@ -77,14 +80,20 @@ router.post('/', authenticate, authorize(CONTACT_ACCESS_ROLES), createContactHan
  *       - bearerAuth: []
  *     parameters:
  *       - in: query
- *         name: q
+ *         name: page
  *         schema:
- *           type: string
- *         description: Search by name, company, email, or phone
+ *           type: integer
+ *           default: 1
  *       - in: query
- *         name: status
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 10
+ *       - in: query
+ *         name: search
  *         schema:
  *           type: string
+ *         description: Search by name, email, or phone
  *     responses:
  *       200:
  *         description: Contacts fetched successfully
