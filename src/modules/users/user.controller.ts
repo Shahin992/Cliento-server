@@ -61,7 +61,7 @@ export const signup = async (req: Request, res: Response, next:NextFunction) => 
     const parsed = userSchema.parse(req.body);
     const tempPassword = String(randomInt(100000, 1000000));
     const user =  await registerUser({ ...parsed, password: tempPassword });
-    sendWelcomeEmail(user.email, user.fullName, tempPassword).catch((error: Error & { code?: string }) => {
+   await  sendWelcomeEmail(user.email, user.fullName, tempPassword).catch((error: Error & { code?: string }) => {
       console.error(`====> Failed to send welcome email (${error.code || 'unknown'}) ${error.message}`);
     });
     const { password: _password, ...safeUser } = user.toObject();
