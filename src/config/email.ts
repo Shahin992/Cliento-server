@@ -1,5 +1,7 @@
 import https from 'https';
 
+const EMAIL_REQUEST_TIMEOUT_MS = Number(process.env.EMAIL_REQUEST_TIMEOUT_MS || 5000);
+
 const getEmailConfig = () => {
   return {
     apiKey: process.env.BREVO_API_KEY,
@@ -13,8 +15,50 @@ export const canSendEmail = () => {
   return Boolean(apiKey && senderEmail);
 };
 
+const sendBrevoEmail = async (payload: string) => {
+  const { apiKey } = getEmailConfig();
+
+  await new Promise((resolve, reject) => {
+    const req = https.request(
+      {
+        hostname: 'api.brevo.com',
+        path: '/v3/smtp/email',
+        method: 'POST',
+        headers: {
+          'api-key': apiKey as string,
+          'content-type': 'application/json',
+          accept: 'application/json',
+          'content-length': Buffer.byteLength(payload),
+        },
+      },
+      (res) => {
+        let data = '';
+        res.on('data', (chunk) => {
+          data += chunk;
+        });
+        res.on('end', () => {
+          if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) {
+            console.log(`====> Email sent: ${res.statusCode}`);
+            resolve(data);
+            return;
+          }
+          reject(new Error(`Brevo API error: ${res.statusCode} ${data}`));
+        });
+      }
+    );
+
+    req.setTimeout(EMAIL_REQUEST_TIMEOUT_MS, () => {
+      req.destroy(new Error(`Brevo request timeout after ${EMAIL_REQUEST_TIMEOUT_MS}ms`));
+    });
+
+    req.on('error', reject);
+    req.write(payload);
+    req.end();
+  });
+};
+
 export const sendWelcomeEmail = async (to: string, name: string, tempPassword: string) => {
-  const { apiKey, senderEmail, senderName } = getEmailConfig();
+  const { senderEmail, senderName } = getEmailConfig();
   if (!canSendEmail()) {
     console.warn('====> Email not sent: missing Brevo API env vars');
     return;
@@ -71,43 +115,11 @@ export const sendWelcomeEmail = async (to: string, name: string, tempPassword: s
     </div>`
   });
 
-  await new Promise((resolve, reject) => {
-    const req = https.request(
-      {
-        hostname: 'api.brevo.com',
-        path: '/v3/smtp/email',
-        method: 'POST',
-        headers: {
-          'api-key': apiKey as string,
-          'content-type': 'application/json',
-          accept: 'application/json',
-          'content-length': Buffer.byteLength(payload),
-        },
-      },
-      (res) => {
-        let data = '';
-        res.on('data', (chunk) => {
-          data += chunk;
-        });
-        res.on('end', () => {
-          if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) {
-            console.log(`====> Email sent: ${res.statusCode}`);
-            resolve(data);
-          } else {
-            reject(new Error(`Brevo API error: ${res.statusCode} ${data}`));
-          }
-        });
-      }
-    );
-
-    req.on('error', reject);
-    req.write(payload);
-    req.end();
-  });
+  await sendBrevoEmail(payload);
 };
 
 export const sendPasswordResetOtpEmail = async (to: string, name: string, otp: string) => {
-  const { apiKey, senderEmail, senderName } = getEmailConfig();
+  const { senderEmail, senderName } = getEmailConfig();
   if (!canSendEmail()) {
     console.warn('====> Email not sent: missing Brevo API env vars');
     return;
@@ -140,43 +152,11 @@ export const sendPasswordResetOtpEmail = async (to: string, name: string, otp: s
     </div>`
   });
 
-  await new Promise((resolve, reject) => {
-    const req = https.request(
-      {
-        hostname: 'api.brevo.com',
-        path: '/v3/smtp/email',
-        method: 'POST',
-        headers: {
-          'api-key': apiKey as string,
-          'content-type': 'application/json',
-          accept: 'application/json',
-          'content-length': Buffer.byteLength(payload),
-        },
-      },
-      (res) => {
-        let data = '';
-        res.on('data', (chunk) => {
-          data += chunk;
-        });
-        res.on('end', () => {
-          if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) {
-            console.log(`====> Email sent: ${res.statusCode}`);
-            resolve(data);
-          } else {
-            reject(new Error(`Brevo API error: ${res.statusCode} ${data}`));
-          }
-        });
-      }
-    );
-
-    req.on('error', reject);
-    req.write(payload);
-    req.end();
-  });
+  await sendBrevoEmail(payload);
 };
 
 export const sendPasswordResetConfirmationEmail = async (to: string, name: string) => {
-  const { apiKey, senderEmail, senderName } = getEmailConfig();
+  const { senderEmail, senderName } = getEmailConfig();
   if (!canSendEmail()) {
     console.warn('====> Email not sent: missing Brevo API env vars');
     return;
@@ -201,37 +181,5 @@ export const sendPasswordResetConfirmationEmail = async (to: string, name: strin
     </div>`
   });
 
-  await new Promise((resolve, reject) => {
-    const req = https.request(
-      {
-        hostname: 'api.brevo.com',
-        path: '/v3/smtp/email',
-        method: 'POST',
-        headers: {
-          'api-key': apiKey as string,
-          'content-type': 'application/json',
-          accept: 'application/json',
-          'content-length': Buffer.byteLength(payload),
-        },
-      },
-      (res) => {
-        let data = '';
-        res.on('data', (chunk) => {
-          data += chunk;
-        });
-        res.on('end', () => {
-          if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) {
-            console.log(`====> Email sent: ${res.statusCode}`);
-            resolve(data);
-          } else {
-            reject(new Error(`Brevo API error: ${res.statusCode} ${data}`));
-          }
-        });
-      }
-    );
-
-    req.on('error', reject);
-    req.write(payload);
-    req.end();
-  });
+  await sendBrevoEmail(payload);
 };

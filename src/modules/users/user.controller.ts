@@ -61,7 +61,7 @@ export const signup = async (req: Request, res: Response, next:NextFunction) => 
     const parsed = userSchema.parse(req.body);
     const tempPassword = String(randomInt(100000, 1000000));
     const user =  await registerUser({ ...parsed, password: tempPassword });
-    await sendWelcomeEmail(user.email, user.fullName, tempPassword).catch((error) => {
+    sendWelcomeEmail(user.email, user.fullName, tempPassword).catch((error) => {
       console.error('====> Failed to send welcome email', error);
     });
     const { password: _password, ...safeUser } = user.toObject();
@@ -173,7 +173,7 @@ export const forgotPassword = async (req: Request, res: Response) => {
         message: 'User not found',
       });
     }
-    await sendPasswordResetOtpEmail(result.user.email, result.user.fullName, result.otp).catch((error) => {
+    sendPasswordResetOtpEmail(result.user.email, result.user.fullName, result.otp).catch((error) => {
       console.error('====> Failed to send password reset OTP email', error);
     });
     return sendResponse(res, {
@@ -258,7 +258,7 @@ export const resetPassword = async (req: Request, res: Response) => {
         message: 'Invalid or expired OTP',
       });
     }
-    await sendPasswordResetConfirmationEmail(result.user.email, result.user.fullName).catch((error) => {
+    sendPasswordResetConfirmationEmail(result.user.email, result.user.fullName).catch((error) => {
       console.error('====> Failed to send password reset confirmation email', error);
     });
     return sendResponse(res, {
