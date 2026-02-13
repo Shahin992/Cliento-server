@@ -61,8 +61,8 @@ export const signup = async (req: Request, res: Response, next:NextFunction) => 
     const parsed = userSchema.parse(req.body);
     const tempPassword = String(randomInt(100000, 1000000));
     const user =  await registerUser({ ...parsed, password: tempPassword });
-    sendWelcomeEmail(user.email, user.fullName, tempPassword).catch((error) => {
-      console.error('====> Failed to send welcome email', error);
+    sendWelcomeEmail(user.email, user.fullName, tempPassword).catch((error: Error & { code?: string }) => {
+      console.error(`====> Failed to send welcome email (${error.code || 'unknown'}) ${error.message}`);
     });
     const { password: _password, ...safeUser } = user.toObject();
     return sendResponse(res, {
@@ -173,8 +173,8 @@ export const forgotPassword = async (req: Request, res: Response) => {
         message: 'User not found',
       });
     }
-    sendPasswordResetOtpEmail(result.user.email, result.user.fullName, result.otp).catch((error) => {
-      console.error('====> Failed to send password reset OTP email', error);
+    sendPasswordResetOtpEmail(result.user.email, result.user.fullName, result.otp).catch((error: Error & { code?: string }) => {
+      console.error(`====> Failed to send password reset OTP email (${error.code || 'unknown'}) ${error.message}`);
     });
     return sendResponse(res, {
       success: true,
@@ -258,8 +258,8 @@ export const resetPassword = async (req: Request, res: Response) => {
         message: 'Invalid or expired OTP',
       });
     }
-    sendPasswordResetConfirmationEmail(result.user.email, result.user.fullName).catch((error) => {
-      console.error('====> Failed to send password reset confirmation email', error);
+    sendPasswordResetConfirmationEmail(result.user.email, result.user.fullName).catch((error: Error & { code?: string }) => {
+      console.error(`====> Failed to send password reset confirmation email (${error.code || 'unknown'}) ${error.message}`);
     });
     return sendResponse(res, {
       success: true,

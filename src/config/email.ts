@@ -1,6 +1,13 @@
 import https from 'https';
 
 const EMAIL_REQUEST_TIMEOUT_MS = Number(process.env.EMAIL_REQUEST_TIMEOUT_MS || 5000);
+const EMAIL_RETRY_COUNT = Number(process.env.EMAIL_RETRY_COUNT || 1);
+const EMAIL_RETRY_DELAY_MS = Number(process.env.EMAIL_RETRY_DELAY_MS || 300);
+
+const brevoAgent = new https.Agent({
+  keepAlive: true,
+  maxSockets: 50,
+});
 
 const getEmailConfig = () => {
   return {
@@ -15,12 +22,21 @@ export const canSendEmail = () => {
   return Boolean(apiKey && senderEmail);
 };
 
-const sendBrevoEmail = async (payload: string) => {
+const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const isRetryableEmailError = (error: unknown) => {
+  if (!(error instanceof Error)) return false;
+  const code = (error as Error & { code?: string }).code;
+  return code === 'ECONNRESET' || code === 'ETIMEDOUT' || code === 'EAI_AGAIN';
+};
+
+const sendBrevoEmailOnce = async (payload: string) => {
   const { apiKey } = getEmailConfig();
 
   await new Promise((resolve, reject) => {
     const req = https.request(
       {
+        agent: brevoAgent,
         hostname: 'api.brevo.com',
         path: '/v3/smtp/email',
         method: 'POST',
@@ -55,6 +71,25 @@ const sendBrevoEmail = async (payload: string) => {
     req.write(payload);
     req.end();
   });
+};
+
+const sendBrevoEmail = async (payload: string) => {
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt <= EMAIL_RETRY_COUNT; attempt += 1) {
+    try {
+      await sendBrevoEmailOnce(payload);
+      return;
+    } catch (error) {
+      lastError = error;
+      if (attempt === EMAIL_RETRY_COUNT || !isRetryableEmailError(error)) {
+        throw error;
+      }
+      await wait(EMAIL_RETRY_DELAY_MS);
+    }
+  }
+
+  throw lastError;
 };
 
 export const sendWelcomeEmail = async (to: string, name: string, tempPassword: string) => {
