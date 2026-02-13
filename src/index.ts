@@ -77,8 +77,7 @@ const swaggerSpec = swaggerJSDoc({
 app.use('/api-docs', swaggerUi.serve);
 app.get('/api-docs', swaggerUi.setup(swaggerSpec));
 
-// Database connection
-connectDB();
+// Database connection is awaited before server starts.
 
 
 app.use('/api/auth', authRoutes);
@@ -182,6 +181,16 @@ app.get('/', (_req: Request, res: Response) => {
 });
 
 
-app.listen(PORT, () => {
-    console.log('====> Server running on', PORT);
-});
+const startServer = async () => {
+    try {
+        await connectDB();
+        app.listen(PORT, () => {
+            console.log('====> Server running on', PORT);
+        });
+    } catch (error) {
+        console.error('====> Failed to start server due to DB connection error', error);
+        process.exit(1);
+    }
+};
+
+startServer();
