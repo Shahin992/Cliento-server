@@ -54,3 +54,15 @@ export type CreatePipelineInput = {
   createdBy: string;
   updatedBy?: string | null;
 };
+
+export type CreateDealInput = {
+  ownerId: string;
+  pipelineId: string;
+  stageId: string;
+  title: string;
+  amount?: number | null;
+  contactId?: string | null;
+  expectedCloseDate?: Date | null;
+  createdBy: string;
+  updatedBy?: string | null;
+};

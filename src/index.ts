@@ -7,6 +7,7 @@ import userRoutes from '../src/modules/users/users.route';
 import uploadRoutes from '../src/modules/upload/upload.route';
 import contactRoutes from '../src/modules/contacts/contact.route';
 import pipelineRoutes from '../src/modules/deals/pipeline.route';
+import dealRoutes from '../src/modules/deals/deal.route';
 import { connectDB } from './config/db';
 import path from 'path';
 const express = require('express');
@@ -56,6 +57,7 @@ const swaggerSpec = swaggerJSDoc({
             { name: 'Users' },
             { name: 'Contacts' },
             { name: 'Pipelines' },
+            { name: 'Deals' },
         ],
         servers: [
             {
@@ -87,6 +89,7 @@ app.use('/api/users', userRoutes);
 app.use('/api/upload', uploadRoutes);
 app.use('/api/contacts', contactRoutes);
 app.use('/api/pipelines', pipelineRoutes);
+app.use('/api/deals', dealRoutes);
 app.get('/', (_req: Request, res: Response) => {
     return res
         .status(200)
