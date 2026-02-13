@@ -64,7 +64,9 @@ const sendBrevoEmailOnce = async (payload: string) => {
     );
 
     req.setTimeout(EMAIL_REQUEST_TIMEOUT_MS, () => {
-      req.destroy(new Error(`Brevo request timeout after ${EMAIL_REQUEST_TIMEOUT_MS}ms`));
+      const timeoutError = new Error(`Brevo request timeout after ${EMAIL_REQUEST_TIMEOUT_MS}ms`) as Error & { code?: string };
+      timeoutError.code = 'ETIMEDOUT';
+      req.destroy(timeoutError);
     });
 
     req.on('error', reject);

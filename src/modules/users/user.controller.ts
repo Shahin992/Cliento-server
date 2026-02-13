@@ -3,7 +3,7 @@ import { randomInt } from 'crypto';
 import { z, ZodError } from 'zod';
 import { changePassword, createPasswordResetOtp, getMyProfile, loginUser, registerUser, resetPasswordWithOtp, updateProfile, updateProfilePhoto, verifyPasswordResetOtp } from './user.service';
 import { sendError, sendResponse } from '../../../Utils/response';
-import { sendPasswordResetConfirmationEmail, sendPasswordResetOtpEmail, sendWelcomeEmail } from '../../config/email';
+import { canSendEmail, sendPasswordResetConfirmationEmail, sendPasswordResetOtpEmail, sendWelcomeEmail } from '../../config/email';
 
 const userSchema = z.object({
   fullName: z.string(),
@@ -164,6 +164,14 @@ export const logout = async (_req: Request, res: Response) => {
 
 export const forgotPassword = async (req: Request, res: Response) => {
   try {
+    if (!canSendEmail()) {
+      return sendError(res, {
+        success: false,
+        statusCode: 500,
+        message: 'Email service is not configured',
+      });
+    }
+
     const parsed = forgotPasswordSchema.parse(req.body);
     const result = await createPasswordResetOtp(parsed.email);
     if (!result) {
@@ -173,9 +181,7 @@ export const forgotPassword = async (req: Request, res: Response) => {
         message: 'User not found',
       });
     }
-    sendPasswordResetOtpEmail(result.user.email, result.user.fullName, result.otp).catch((error: Error & { code?: string }) => {
-      console.error(`====> Failed to send password reset OTP email (${error.code || 'unknown'}) ${error.message}`);
-    });
+    await sendPasswordResetOtpEmail(result.user.email, result.user.fullName, result.otp);
     return sendResponse(res, {
       success: true,
       statusCode: 200,
@@ -258,9 +264,28 @@ export const resetPassword = async (req: Request, res: Response) => {
         message: 'Invalid or expired OTP',
       });
     }
-    sendPasswordResetConfirmationEmail(result.user.email, result.user.fullName).catch((error: Error & { code?: string }) => {
-      console.error(`====> Failed to send password reset confirmation email (${error.code || 'unknown'}) ${error.message}`);
-    });
+
+    let confirmationEmailSent = false;
+    if (canSendEmail()) {
+      try {
+        await sendPasswordResetConfirmationEmail(result.user.email, result.user.fullName);
+        confirmationEmailSent = true;
+      } catch (error) {
+        const emailError = error as Error & { code?: string };
+        console.error(`====> Failed to send password reset confirmation email (${emailError.code || 'unknown'}) ${emailError.message}`);
+      }
+    } else {
+      console.warn('====> Password reset confirmation email not sent: email service is not configured');
+    }
+
+    if (!confirmationEmailSent) {
+      return sendResponse(res, {
+        success: true,
+        statusCode: 200,
+        message: 'Password reset successful, but confirmation email could not be sent',
+      });
+    }
+
     return sendResponse(res, {
       success: true,
       statusCode: 200,
