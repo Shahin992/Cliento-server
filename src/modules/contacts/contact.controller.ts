@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import { z, ZodError } from 'zod';
 import { sendError, sendResponse } from '../../../Utils/response';
-import { createContact, deleteContact, getContactById, listContacts, updateContact } from './contact.service';
+import { createContact, deleteContact, getContactById, listContactNames, listContacts, updateContact, updateContactPhoto } from './contact.service';
 
 const LENGTH = {
   firstName: 30,
@@ -117,6 +117,23 @@ const listContactsQuerySchema = z.object({
   ),
 });
 
+const listContactNamesBodySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(500).default(10),
+  search: z.preprocess(
+    (value) => {
+      if (typeof value !== 'string') return undefined;
+      const trimmed = value.trim();
+      return trimmed.length > 0 ? trimmed : undefined;
+    },
+    z.string().max(LENGTH.listSearch).optional()
+  ),
+});
+
+const updateContactPhotoSchema = z.object({
+  photoUrl: z.string().trim().max(LENGTH.photoUrl).url().nullable(),
+});
+
 const getUserIdFromReq = (req: Request) => (req as any).user?.id as string | undefined;
 
 const getQueryValue = (value: unknown) => (typeof value === 'string' ? value : undefined);
@@ -226,6 +243,45 @@ export const listContactsHandler = async (req: Request, res: Response) => {
       success: false,
       statusCode: 500,
       message: 'Failed to fetch contacts',
+      details: (error as Error).message,
+    });
+  }
+};
+
+export const listContactNamesHandler = async (req: Request, res: Response) => {
+  try {
+    const userId = getUserIdFromReq(req);
+    if (!userId) {
+      return sendError(res, {
+        success: false,
+        statusCode: 401,
+        message: 'You have no access to this route',
+      });
+    }
+
+    const payload = listContactNamesBodySchema.parse(req.body ?? {});
+    const contacts = await listContactNames(userId, payload);
+
+    return sendResponse(res, {
+      success: true,
+      statusCode: 200,
+      message: 'Contact options fetched successfully',
+      data: contacts,
+    });
+  } catch (error) {
+    if (error instanceof ZodError) {
+      return sendError(res, {
+        success: false,
+        statusCode: 400,
+        message: 'Validation failed',
+        details: error.errors.map((e) => `${e.path.join('.')}: ${e.message}`).join(', '),
+      });
+    }
+
+    return sendError(res, {
+      success: false,
+      statusCode: 500,
+      message: 'Failed to fetch contact options',
       details: (error as Error).message,
     });
   }
@@ -369,6 +425,51 @@ export const deleteContactHandler = async (req: Request, res: Response) => {
       success: false,
       statusCode: 500,
       message: 'Failed to delete contact',
+      details: (error as Error).message,
+    });
+  }
+};
+
+export const updateContactPhotoHandler = async (req: Request, res: Response) => {
+  try {
+    const userId = getUserIdFromReq(req);
+    if (!userId) {
+      return sendError(res, {
+        success: false,
+        statusCode: 401,
+        message: 'You have no access to this route',
+      });
+    }
+
+    const parsed = updateContactPhotoSchema.parse(req.body);
+    const contact = await updateContactPhoto(userId, req.params.id, parsed.photoUrl);
+    if (!contact) {
+      return sendError(res, {
+        success: false,
+        statusCode: 404,
+        message: 'Contact not found',
+      });
+    }
+
+    return sendResponse(res, {
+      success: true,
+      statusCode: 200,
+      message: 'Contact photo updated successfully',
+      data: contact,
+    });
+  } catch (error) {
+    if (error instanceof ZodError) {
+      return sendError(res, {
+        success: false,
+        statusCode: 400,
+        message: 'Validation failed',
+        details: error.errors.map((e) => `${e.path.join('.')}: ${e.message}`).join(', '),
+      });
+    }
+    return sendError(res, {
+      success: false,
+      statusCode: 500,
+      message: 'Failed to update contact photo',
       details: (error as Error).message,
     });
   }

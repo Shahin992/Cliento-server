@@ -164,6 +164,55 @@ export const listContacts = async (ownerId: string, query: ListContactsQuery): P
   };
 };
 
+type ListContactNamesQuery = {
+  page: number;
+  limit: number;
+  search?: string;
+};
+
+export const listContactNames = async (ownerId: string, query: ListContactNamesQuery) => {
+  const conditions: FilterQuery<IContact>[] = [{ ownerId, deletedAt: null }];
+
+  if (query.search) {
+    const regex = createRegex(query.search);
+    conditions.push({
+      $or: [
+        { firstName: regex },
+        { lastName: regex },
+      ],
+    });
+  }
+
+  const filter = conditions.length === 1 ? conditions[0] : { $and: conditions };
+  const skip = (query.page - 1) * query.limit;
+
+  const [contacts, total] = await Promise.all([
+    Contact.find(filter)
+      .select('_id firstName lastName')
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(query.limit),
+    Contact.countDocuments(filter),
+  ]);
+
+  const totalPages = Math.ceil(total / query.limit);
+
+  return {
+    contacts: contacts.map((contact) => ({
+      _id: contact._id,
+      name: `${contact.firstName}${contact.lastName ? ` ${contact.lastName}` : ''}`.trim(),
+    })),
+    pagination: {
+      page: query.page,
+      limit: query.limit,
+      total,
+      totalPages,
+      hasNextPage: query.page < totalPages,
+      hasPrevPage: query.page > 1,
+    },
+  };
+};
+
 export const getContactById = async (ownerId: string, id: string) => {
   const contact = await Contact.findOne({ _id: id, ownerId, deletedAt: null })
     .select(CONTACT_DETAIL_FIELDS)
@@ -198,6 +247,18 @@ export const deleteContact = async (ownerId: string, id: string) => {
     {
       deletedAt: new Date(),
       deletedBy: ownerId,
+      updatedBy: ownerId,
+    },
+    { new: true }
+  );
+  return contact;
+};
+
+export const updateContactPhoto = async (ownerId: string, id: string, photoUrl: string | null) => {
+  const contact = await Contact.findOneAndUpdate(
+    { _id: id, ownerId, deletedAt: null },
+    {
+      photoUrl,
       updatedBy: ownerId,
     },
     { new: true }

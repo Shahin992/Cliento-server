@@ -4,8 +4,10 @@ import {
   createContactHandler,
   deleteContactHandler,
   getContactByIdHandler,
+  listContactNamesHandler,
   listContactsHandler,
   updateContactHandler,
+  updateContactPhotoHandler,
 } from './contact.controller';
 
 const router = Router();
@@ -102,6 +104,36 @@ router.get('/', authenticate, authorize(CONTACT_ACCESS_ROLES), listContactsHandl
 
 /**
  * @swagger
+ * /api/contacts/options:
+ *   post:
+ *     tags:
+ *       - Contacts
+ *     summary: List contacts for dropdown (id + name)
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               search:
+ *                 type: string
+ *               page:
+ *                 type: integer
+ *                 default: 1
+ *               limit:
+ *                 type: integer
+ *                 default: 10
+ *     responses:
+ *       200:
+ *         description: Contact options fetched successfully
+ */
+router.post('/options', authenticate, authorize(CONTACT_ACCESS_ROLES), listContactNamesHandler);
+
+/**
+ * @swagger
  * /api/contacts/{id}:
  *   get:
  *     tags:
@@ -151,6 +183,41 @@ router.get('/:id', authenticate, authorize(CONTACT_ACCESS_ROLES), getContactById
  *         description: Contact not found
  */
 router.put('/:id', authenticate, authorize(CONTACT_ACCESS_ROLES), updateContactHandler);
+
+/**
+ * @swagger
+ * /api/contacts/{id}/photo:
+ *   put:
+ *     tags:
+ *       - Contacts
+ *     summary: Update contact photo only
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - photoUrl
+ *             properties:
+ *               photoUrl:
+ *                 type: string
+ *                 nullable: true
+ *     responses:
+ *       200:
+ *         description: Contact photo updated successfully
+ *       404:
+ *         description: Contact not found
+ */
+router.put('/:id/photo', authenticate, authorize(CONTACT_ACCESS_ROLES), updateContactPhotoHandler);
 
 /**
  * @swagger

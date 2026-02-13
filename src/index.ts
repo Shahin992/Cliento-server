@@ -79,7 +79,39 @@ const swaggerSpec = swaggerJSDoc({
 });
 
 app.use('/api-docs', swaggerUi.serve);
-app.get('/api-docs', swaggerUi.setup(swaggerSpec));
+app.get('/api-docs', swaggerUi.setup(swaggerSpec, {
+    swaggerOptions: {
+        operationsSorter: (a: any, b: any) => {
+            const methodA = String(a.get('method') || '').toLowerCase();
+            const methodB = String(b.get('method') || '').toLowerCase();
+            const pathA = String(a.get('path') || '');
+            const pathB = String(b.get('path') || '');
+
+            const keyA = `${methodA} ${pathA}`;
+            const keyB = `${methodB} ${pathB}`;
+
+            const priority: Record<string, number> = {
+                'put /api/contacts/{id}': 1,
+                'put /api/contacts/{id}/photo': 2,
+                'delete /api/contacts/{id}': 3,
+            };
+
+            const rankA = priority[keyA];
+            const rankB = priority[keyB];
+            const hasRankA = rankA !== undefined;
+            const hasRankB = rankB !== undefined;
+
+            if (hasRankA && hasRankB) return rankA - rankB;
+            if (hasRankA) return -1;
+            if (hasRankB) return 1;
+
+            if (pathA !== pathB) return pathA.localeCompare(pathB);
+
+            const methodOrder = ['get', 'post', 'put', 'patch', 'delete', 'options', 'head', 'trace'];
+            return methodOrder.indexOf(methodA) - methodOrder.indexOf(methodB);
+        },
+    },
+}));
 
 // Database connection is awaited before server starts.
 
@@ -193,6 +225,18 @@ const startServer = async () => {
         app.listen(PORT, () => {
             console.log('====> Server running on', PORT);
         });
+        const TEN_MINUTES = 10 * 60 * 1000;
+
+          setInterval(async () => {
+            try {
+              const response = await fetch("https://cliento-server.vercel.app");
+              const data = await response.text(); // use .json() if it returns JSON
+              
+              console.log("API Docs ping success:", response.status);
+            } catch (error) {
+              console.error("Error calling api-docs:", error);
+            }
+          }, TEN_MINUTES);
     } catch (error) {
         console.error('====> Failed to start server due to DB connection error', error);
         process.exit(1);
