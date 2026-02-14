@@ -190,7 +190,7 @@ export const listContactNames = async (ownerId: string, query: ListContactNamesQ
 
   const [contacts, total] = await Promise.all([
     Contact.find(filter)
-      .select('_id firstName lastName')
+      .select('_id firstName lastName emails phones photoUrl')
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(query.limit),
@@ -203,6 +203,9 @@ export const listContactNames = async (ownerId: string, query: ListContactNamesQ
     contacts: contacts.map((contact) => ({
       _id: contact._id,
       name: `${contact.firstName}${contact.lastName ? ` ${contact.lastName}` : ''}`.trim(),
+      email: contact.emails?.[0] ?? null,
+      phone: contact.phones?.[0] ?? null,
+      photoUrl: contact.photoUrl ?? null,
     })),
     pagination: {
       page: query.page,

@@ -4,6 +4,79 @@ import { Contact } from '../contacts/contact.model';
 import { Deal } from './deal.model';
 import { Pipeline } from './pipeline.model';
 
+const formatDealResponse = (deal: any) => {
+  const dealObj = typeof deal?.toObject === 'function' ? deal.toObject() : deal;
+  const owner = dealObj?.ownerId && typeof dealObj.ownerId === 'object' ? dealObj.ownerId : null;
+  const pipeline = dealObj?.pipelineId && typeof dealObj.pipelineId === 'object' ? dealObj.pipelineId : null;
+  const contact = dealObj?.contactId && typeof dealObj.contactId === 'object' ? dealObj.contactId : null;
+  const stages = Array.isArray(pipeline?.stages) ? pipeline.stages : [];
+  const matchedStage = stages.find((stage: any) => String(stage?._id) === String(dealObj?.stageId));
+
+  const pipelineData = pipeline
+    ? {
+        _id: pipeline._id,
+        name: pipeline.name,
+        isDefault: pipeline.isDefault,
+      }
+    : dealObj.pipelineId
+      ? { _id: dealObj.pipelineId, name: null, isDefault: null }
+      : null;
+
+  const stageData = matchedStage
+    ? {
+        _id: matchedStage._id,
+        name: matchedStage.name,
+        color: matchedStage.color ?? null,
+        order: matchedStage.order,
+        isDefault: matchedStage.isDefault ?? false,
+      }
+    : dealObj.stageId
+      ? {
+          _id: dealObj.stageId,
+          name: null,
+          color: null,
+          order: null,
+          isDefault: false,
+        }
+      : null;
+
+  const contactData = contact
+    ? contact
+    : dealObj.contactId
+      ? { _id: dealObj.contactId }
+      : null;
+
+  const {
+    ownerId: _ownerId,
+    pipelineId: _pipelineId,
+    stageId: _stageId,
+    contactId: _contactId,
+    ...rest
+  } = dealObj;
+
+  return {
+    ...rest,
+    dealOwner: owner
+      ? {
+          _id: owner._id,
+          name: owner.fullName,
+          email: owner.email,
+          phone: owner.phoneNumber ?? null,
+        }
+      : dealObj.ownerId
+        ? {
+            _id: dealObj.ownerId,
+            name: null,
+            email: null,
+            phone: null,
+          }
+        : null,
+    pipeline: pipelineData,
+    stage: stageData,
+    contact: contactData,
+  };
+};
+
 const validatePipelineAndStage = async (ownerId: string, pipelineId: string, stageId: string) => {
   const pipeline = await Pipeline.findOne({
     _id: pipelineId,
@@ -74,6 +147,7 @@ export const getDealDetails = async (ownerId: string, dealId: string) => {
     ownerId,
     deletedAt: null,
   })
+    .populate({ path: 'ownerId', select: '_id fullName email phoneNumber' })
     .populate({ path: 'pipelineId', select: '_id name isDefault stages' })
     .populate({ path: 'contactId', select: '_id firstName lastName emails phones companyName' });
 
@@ -81,7 +155,7 @@ export const getDealDetails = async (ownerId: string, dealId: string) => {
     return { status: 'deal_not_found' as const };
   }
 
-  return { status: 'ok' as const, deal };
+  return { status: 'ok' as const, deal: formatDealResponse(deal) };
 };
 
 type ListDealsQuery = {
@@ -123,15 +197,17 @@ export const listDeals = async (ownerId: string, query: ListDealsQuery) => {
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(query.limit)
-      .populate({ path: 'pipelineId', select: '_id name' })
+      .populate({ path: 'ownerId', select: '_id fullName email phoneNumber' })
+      .populate({ path: 'pipelineId', select: '_id name stages' })
       .populate({ path: 'contactId', select: '_id firstName lastName companyName' }),
     Deal.countDocuments(filter),
   ]);
 
   const totalPages = Math.ceil(total / query.limit);
+  const dealsWithStageName = deals.map((deal) => formatDealResponse(deal));
 
   return {
-    deals,
+    deals: dealsWithStageName,
     pagination: {
       page: query.page,
       limit: query.limit,

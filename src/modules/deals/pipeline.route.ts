@@ -33,10 +33,6 @@ const PIPELINE_ACCESS_ROLES = ['OWNER', 'ADMIN', 'MEMBER'];
  *             properties:
  *               name:
  *                 type: string
- *               isDefault:
- *                 type: boolean
- *                 default: false
- *                 description: Defaults to false unless explicitly sent as true
  *               stages:
  *                 type: array
  *                 items:
@@ -49,12 +45,6 @@ const PIPELINE_ACCESS_ROLES = ['OWNER', 'ADMIN', 'MEMBER'];
  *                     color:
  *                       type: string
  *                       nullable: true
- *                     order:
- *                       type: integer
- *                     isDefault:
- *                       type: boolean
- *                       default: false
- *                       description: Defaults to false unless explicitly sent as true
  *     responses:
  *       201:
  *         description: Pipeline created successfully

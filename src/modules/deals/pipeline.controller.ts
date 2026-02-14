@@ -30,6 +30,11 @@ const optionalNullableTrimmedString = (max: number) => z.preprocess(
   z.string().max(max).nullable().optional()
 );
 
+const createPipelineStageSchema = z.object({
+  name: z.string().trim().min(1).max(LENGTH.stageName),
+  color: optionalNullableTrimmedString(LENGTH.stageColor),
+});
+
 const createStageSchema = z.object({
   name: z.string().trim().min(1).max(LENGTH.stageName),
   color: optionalNullableTrimmedString(LENGTH.stageColor),
@@ -39,12 +44,9 @@ const createStageSchema = z.object({
 
 const createPipelineSchema = z.object({
   name: z.string().trim().min(1).max(LENGTH.pipelineName),
-  isDefault: z.boolean().optional(),
-  stages: z.array(createStageSchema).min(1).max(LENGTH.stagesMax),
+  stages: z.array(createPipelineStageSchema).min(1).max(LENGTH.stagesMax),
 }).superRefine((data, ctx) => {
   const stageNames = new Set<string>();
-  const usedOrders = new Set<number>();
-  let defaultCount = 0;
 
   data.stages.forEach((stage, index) => {
     const normalized = stage.name.trim().toLowerCase();
@@ -56,28 +58,7 @@ const createPipelineSchema = z.object({
       });
     }
     stageNames.add(normalized);
-
-    if (stage.order !== undefined) {
-      if (usedOrders.has(stage.order)) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['stages', index, 'order'],
-          message: 'Stage order must be unique',
-        });
-      }
-      usedOrders.add(stage.order);
-    }
-
-    if (stage.isDefault) defaultCount += 1;
   });
-
-  if (defaultCount > 1) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['stages'],
-      message: 'Only one default stage is allowed',
-    });
-  }
 });
 
 const createStageOnlySchema = createStageSchema;
@@ -106,7 +87,6 @@ export const createPipelineHandler = async (req: Request, res: Response) => {
     const result = await createPipeline({
       ownerId: userId,
       name: parsed.name,
-      isDefault: parsed.isDefault,
       stages: parsed.stages,
       createdBy: userId,
       updatedBy: userId,

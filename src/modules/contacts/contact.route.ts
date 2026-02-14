@@ -108,7 +108,7 @@ router.get('/', authenticate, authorize(CONTACT_ACCESS_ROLES), listContactsHandl
  *   get:
  *     tags:
  *       - Contacts
- *     summary: List contacts for dropdown (id + name)
+ *     summary: List contacts for dropdown (id + name + photoUrl)
  *     security:
  *       - bearerAuth: []
  *     parameters:

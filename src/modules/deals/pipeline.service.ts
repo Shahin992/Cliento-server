@@ -206,7 +206,7 @@ export const deletePipeline = async (payload: DeletePipelineInput) => {
 
 export const listPipelines = async (ownerId: string) => {
   const pipelines = await Pipeline.find({ ownerId, deletedAt: null })
-    .select('_id name isDefault createdAt updatedAt')
+    .select('_id name')
     .sort({ createdAt: -1 });
 
   return pipelines;
@@ -214,7 +214,7 @@ export const listPipelines = async (ownerId: string) => {
 
 export const getPipelineStages = async (ownerId: string, pipelineId: string) => {
   const pipeline = await Pipeline.findOne({ _id: pipelineId, ownerId, deletedAt: null })
-    .select('_id name isDefault stages createdAt updatedAt');
+    .select('_id name stages');
 
   if (!pipeline) {
     return { status: 'pipeline_not_found' as const };
