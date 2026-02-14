@@ -137,6 +137,12 @@ app.use('/api/upload', uploadRoutes);
 app.use('/api/contacts', contactRoutes);
 app.use('/api/pipelines', pipelineRoutes);
 app.use('/api/deals', dealRoutes);
+app.get('/health-check', (_req: Request, res: Response) => {
+    return res.status(200).json({
+        success: true,
+        message: 'OK',
+    });
+});
 app.get('/', (_req: Request, res: Response) => {
     return res
         .status(200)
@@ -241,17 +247,25 @@ const startServer = async () => {
             console.log('====> Server running on', PORT);
         });
         const TEN_MINUTES = 10 * 60 * 1000;
+        const rawPingUrl = process.env.KEEP_ALIVE_URL || 'https://cliento-server.vercel.app/health-check';
+        const normalizedPingUrl = /^https?:\/\//i.test(rawPingUrl) ? rawPingUrl : `https://${rawPingUrl}`;
+        let pingUrl: string | null = null;
+        try {
+            pingUrl = new URL(normalizedPingUrl).toString();
+        } catch {
+            console.warn(`Skipping keep-alive ping. Invalid KEEP_ALIVE_URL: ${rawPingUrl}`);
+        }
 
-          setInterval(async () => {
-            try {
-              const response = await fetch("ttps://cliento-server.vercel.app");
-              const data = await response.text(); // use .json() if it returns JSON
-              
-              console.log("API Docs ping success:", response.status);
-            } catch (error) {
-              console.error("Error calling api-docs:", error);
-            }
-          }, TEN_MINUTES);
+        if (pingUrl) {
+            setInterval(async () => {
+                try {
+                    const response = await fetch(pingUrl);
+                    console.log("API docs ping success:", response.status);
+                } catch (error) {
+                    console.error("Error calling API docs ping:", error);
+                }
+            }, TEN_MINUTES);
+        }
     } catch (error) {
         console.error('====> Failed to start server due to DB connection error', error);
         process.exit(1);
