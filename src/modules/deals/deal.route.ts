@@ -4,6 +4,7 @@ import {
   createDealHandler,
   deleteDealHandler,
   getDealDetailsHandler,
+  listDealsHandler,
   markDealLostHandler,
   markDealWonHandler,
   updateDealHandler,
@@ -60,6 +61,46 @@ const DEAL_ACCESS_ROLES = ['OWNER', 'ADMIN', 'MEMBER'];
  *         description: Pipeline or contact not found
  */
 router.post('/', authenticate, authorize(DEAL_ACCESS_ROLES), createDealHandler);
+
+/**
+ * @swagger
+ * /api/deals:
+ *   get:
+ *     tags:
+ *       - Deals
+ *     summary: List deals
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           default: 1
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 10
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *         description: Search by deal title
+ *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *           enum: [open, won, lost]
+ *       - in: query
+ *         name: pipelineId
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Deals fetched successfully
+ */
+router.get('/', authenticate, authorize(DEAL_ACCESS_ROLES), listDealsHandler);
 
 /**
  * @swagger

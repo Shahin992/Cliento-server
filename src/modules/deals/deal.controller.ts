@@ -5,6 +5,7 @@ import {
   createDeal,
   deleteDeal,
   getDealDetails,
+  listDeals,
   markDealLost,
   markDealWon,
   updateDeal,
@@ -65,7 +66,37 @@ const dealLostActionSchema = z.object({
   ),
 });
 
+const listDealsQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(500).default(10),
+  search: z.preprocess(
+    (value) => {
+      if (typeof value !== 'string') return undefined;
+      const trimmed = value.trim();
+      return trimmed.length > 0 ? trimmed : undefined;
+    },
+    z.string().max(LENGTH.title).optional()
+  ),
+  status: z.preprocess(
+    (value) => {
+      if (typeof value !== 'string') return undefined;
+      const trimmed = value.trim().toLowerCase();
+      return trimmed.length > 0 ? trimmed : undefined;
+    },
+    z.enum(['open', 'won', 'lost']).optional()
+  ),
+  pipelineId: z.preprocess(
+    (value) => {
+      if (typeof value !== 'string') return undefined;
+      const trimmed = value.trim();
+      return trimmed.length > 0 ? trimmed : undefined;
+    },
+    objectIdSchema.optional()
+  ),
+});
+
 const getUserIdFromReq = (req: Request) => (req as any).user?.id as string | undefined;
+const getQueryValue = (value: unknown) => (typeof value === 'string' ? value : undefined);
 
 export const createDealHandler = async (req: Request, res: Response) => {
   try {
@@ -187,6 +218,51 @@ export const getDealDetailsHandler = async (req: Request, res: Response) => {
       success: false,
       statusCode: 500,
       message: 'Failed to fetch deal',
+      details: (error as Error).message,
+    });
+  }
+};
+
+export const listDealsHandler = async (req: Request, res: Response) => {
+  try {
+    const userId = getUserIdFromReq(req);
+    if (!userId) {
+      return sendError(res, {
+        success: false,
+        statusCode: 401,
+        message: 'You have no access to this route',
+      });
+    }
+
+    const query = listDealsQuerySchema.parse({
+      page: getQueryValue(req.query.page),
+      limit: getQueryValue(req.query.limit),
+      search: getQueryValue(req.query.search) ?? getQueryValue(req.query.q),
+      status: getQueryValue(req.query.status),
+      pipelineId: getQueryValue(req.query.pipelineId),
+    });
+
+    const result = await listDeals(userId, query);
+
+    return sendResponse(res, {
+      success: true,
+      statusCode: 200,
+      message: 'Deals fetched successfully',
+      data: result,
+    });
+  } catch (error) {
+    if (error instanceof ZodError) {
+      return sendError(res, {
+        success: false,
+        statusCode: 400,
+        message: 'Validation failed',
+        details: error.errors.map((e) => `${e.path.join('.')}: ${e.message}`).join(', '),
+      });
+    }
+    return sendError(res, {
+      success: false,
+      statusCode: 500,
+      message: 'Failed to fetch deals',
       details: (error as Error).message,
     });
   }

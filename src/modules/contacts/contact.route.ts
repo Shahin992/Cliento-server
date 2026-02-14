@@ -105,32 +105,33 @@ router.get('/', authenticate, authorize(CONTACT_ACCESS_ROLES), listContactsHandl
 /**
  * @swagger
  * /api/contacts/options:
- *   post:
+ *   get:
  *     tags:
  *       - Contacts
  *     summary: List contacts for dropdown (id + name)
  *     security:
  *       - bearerAuth: []
- *     requestBody:
- *       required: false
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             properties:
- *               search:
- *                 type: string
- *               page:
- *                 type: integer
- *                 default: 1
- *               limit:
- *                 type: integer
- *                 default: 10
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           default: 1
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 10
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *         description: Search by name, email, or phone
  *     responses:
  *       200:
  *         description: Contact options fetched successfully
  */
-router.post('/options', authenticate, authorize(CONTACT_ACCESS_ROLES), listContactNamesHandler);
+router.get('/options', authenticate, authorize(CONTACT_ACCESS_ROLES), listContactNamesHandler);
 
 /**
  * @swagger

@@ -1,4 +1,5 @@
-import { CreateDealInput } from './deal.interface';
+import { FilterQuery } from 'mongoose';
+import { CreateDealInput, IDeal } from './deal.interface';
 import { Contact } from '../contacts/contact.model';
 import { Deal } from './deal.model';
 import { Pipeline } from './pipeline.model';
@@ -81,6 +82,65 @@ export const getDealDetails = async (ownerId: string, dealId: string) => {
   }
 
   return { status: 'ok' as const, deal };
+};
+
+type ListDealsQuery = {
+  page: number;
+  limit: number;
+  search?: string;
+  status?: 'open' | 'won' | 'lost';
+  pipelineId?: string;
+};
+
+const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const createRegex = (value: string) => new RegExp(escapeRegExp(value.trim()), 'i');
+
+export const listDeals = async (ownerId: string, query: ListDealsQuery) => {
+  const conditions: FilterQuery<IDeal>[] = [{ ownerId, deletedAt: null }];
+
+  if (query.status) {
+    conditions.push({ status: query.status });
+  }
+
+  if (query.pipelineId) {
+    conditions.push({ pipelineId: query.pipelineId });
+  }
+
+  if (query.search) {
+    const regex = createRegex(query.search);
+    conditions.push({
+      $or: [
+        { title: regex },
+      ],
+    });
+  }
+
+  const filter = conditions.length === 1 ? conditions[0] : { $and: conditions };
+  const skip = (query.page - 1) * query.limit;
+
+  const [deals, total] = await Promise.all([
+    Deal.find(filter)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(query.limit)
+      .populate({ path: 'pipelineId', select: '_id name' })
+      .populate({ path: 'contactId', select: '_id firstName lastName companyName' }),
+    Deal.countDocuments(filter),
+  ]);
+
+  const totalPages = Math.ceil(total / query.limit);
+
+  return {
+    deals,
+    pagination: {
+      page: query.page,
+      limit: query.limit,
+      total,
+      totalPages,
+      hasNextPage: query.page < totalPages,
+      hasPrevPage: query.page > 1,
+    },
+  };
 };
 
 type UpdateDealInput = {

@@ -179,6 +179,8 @@ export const listContactNames = async (ownerId: string, query: ListContactNamesQ
       $or: [
         { firstName: regex },
         { lastName: regex },
+        { emails: regex },
+        { phones: regex },
       ],
     });
   }

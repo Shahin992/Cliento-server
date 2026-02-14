@@ -49,7 +49,7 @@ const swaggerSpec = swaggerJSDoc({
         info: {
             title: 'Cliento Server API',
             version: '1.0.0',
-            description: 'API documentation for Clento Server',
+            description: 'API documentation for Clento Server. More APIs will be added soon.',
         },
         tags: [
             { name: 'Upload' },
@@ -81,33 +81,48 @@ const swaggerSpec = swaggerJSDoc({
 app.use('/api-docs', swaggerUi.serve);
 app.get('/api-docs', swaggerUi.setup(swaggerSpec, {
     swaggerOptions: {
+        tagsSorter: (a: string, b: string) => {
+            const tagOrder = ['Upload', 'Auth', 'Users', 'Contacts', 'Pipelines', 'Deals'];
+            const rankA = tagOrder.indexOf(a);
+            const rankB = tagOrder.indexOf(b);
+            const hasRankA = rankA !== -1;
+            const hasRankB = rankB !== -1;
+
+            if (hasRankA && hasRankB) return rankA - rankB;
+            if (hasRankA) return -1;
+            if (hasRankB) return 1;
+
+            return a.localeCompare(b);
+        },
         operationsSorter: (a: any, b: any) => {
             const methodA = String(a.get('method') || '').toLowerCase();
             const methodB = String(b.get('method') || '').toLowerCase();
             const pathA = String(a.get('path') || '');
             const pathB = String(b.get('path') || '');
 
-            const keyA = `${methodA} ${pathA}`;
-            const keyB = `${methodB} ${pathB}`;
-
-            const priority: Record<string, number> = {
-                'put /api/contacts/{id}': 1,
-                'put /api/contacts/{id}/photo': 2,
-                'delete /api/contacts/{id}': 3,
+            const pathPriority: Record<string, number> = {
+                '/api/upload': 1,
+                '/api/auth': 2,
+                '/api/users': 3,
+                '/api/contacts': 4,
+                '/api/pipelines': 5,
+                '/api/deals': 6,
             };
 
-            const rankA = priority[keyA];
-            const rankB = priority[keyB];
-            const hasRankA = rankA !== undefined;
-            const hasRankB = rankB !== undefined;
+            const getPathRank = (path: string) => {
+                for (const prefix of Object.keys(pathPriority)) {
+                    if (path.startsWith(prefix)) return pathPriority[prefix];
+                }
+                return Number.MAX_SAFE_INTEGER;
+            };
 
-            if (hasRankA && hasRankB) return rankA - rankB;
-            if (hasRankA) return -1;
-            if (hasRankB) return 1;
+            const rankA = getPathRank(pathA);
+            const rankB = getPathRank(pathB);
+            if (rankA !== rankB) return rankA - rankB;
 
             if (pathA !== pathB) return pathA.localeCompare(pathB);
 
-            const methodOrder = ['get', 'post', 'put', 'patch', 'delete', 'options', 'head', 'trace'];
+            const methodOrder = ['post', 'get', 'put', 'patch', 'delete', 'options', 'head', 'trace'];
             return methodOrder.indexOf(methodA) - methodOrder.indexOf(methodB);
         },
     },
@@ -229,7 +244,7 @@ const startServer = async () => {
 
           setInterval(async () => {
             try {
-              const response = await fetch("https://cliento-server.vercel.app");
+              const response = await fetch("ttps://cliento-server.vercel.app");
               const data = await response.text(); // use .json() if it returns JSON
               
               console.log("API Docs ping success:", response.status);

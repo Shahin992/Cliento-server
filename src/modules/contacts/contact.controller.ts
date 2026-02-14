@@ -117,7 +117,7 @@ const listContactsQuerySchema = z.object({
   ),
 });
 
-const listContactNamesBodySchema = z.object({
+const listContactNamesQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(500).default(10),
   search: z.preprocess(
@@ -259,7 +259,11 @@ export const listContactNamesHandler = async (req: Request, res: Response) => {
       });
     }
 
-    const payload = listContactNamesBodySchema.parse(req.body ?? {});
+    const payload = listContactNamesQuerySchema.parse({
+      page: getQueryValue(req.query.page),
+      limit: getQueryValue(req.query.limit),
+      search: getQueryValue(req.query.search) ?? getQueryValue(req.query.q),
+    });
     const contacts = await listContactNames(userId, payload);
 
     return sendResponse(res, {
