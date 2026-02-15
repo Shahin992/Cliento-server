@@ -4,6 +4,7 @@ import {
   createDealHandler,
   deleteDealHandler,
   getDealDetailsHandler,
+  listContactDealsHandler,
   listDealsHandler,
   markDealLostHandler,
   markDealWonHandler,
@@ -101,6 +102,49 @@ router.post('/', authenticate, authorize(DEAL_ACCESS_ROLES), createDealHandler);
  *         description: Deals fetched successfully
  */
 router.get('/', authenticate, authorize(DEAL_ACCESS_ROLES), listDealsHandler);
+
+/**
+ * @swagger
+ * /api/deals/contact/{contactId}:
+ *   get:
+ *     tags:
+ *       - Deals
+ *     summary: List deals for a contact
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: contactId
+ *         required: true
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           default: 1
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 10
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *         description: Search by deal title
+ *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *           enum: [open, won, lost]
+ *     responses:
+ *       200:
+ *         description: Contact deals fetched successfully
+ *       404:
+ *         description: Contact not found
+ */
+router.get('/contact/:contactId', authenticate, authorize(DEAL_ACCESS_ROLES), listContactDealsHandler);
 
 /**
  * @swagger

@@ -5,6 +5,7 @@ import {
   createDeal,
   deleteDeal,
   getDealDetails,
+  listDealsByContact,
   listDeals,
   markDealLost,
   markDealWon,
@@ -92,6 +93,27 @@ const listDealsQuerySchema = z.object({
       return trimmed.length > 0 ? trimmed : undefined;
     },
     objectIdSchema.optional()
+  ),
+});
+
+const listContactDealsQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(500).default(10),
+  search: z.preprocess(
+    (value) => {
+      if (typeof value !== 'string') return undefined;
+      const trimmed = value.trim();
+      return trimmed.length > 0 ? trimmed : undefined;
+    },
+    z.string().max(LENGTH.title).optional()
+  ),
+  status: z.preprocess(
+    (value) => {
+      if (typeof value !== 'string') return undefined;
+      const trimmed = value.trim().toLowerCase();
+      return trimmed.length > 0 ? trimmed : undefined;
+    },
+    z.enum(['open', 'won', 'lost']).optional()
   ),
 });
 
@@ -263,6 +285,62 @@ export const listDealsHandler = async (req: Request, res: Response) => {
       success: false,
       statusCode: 500,
       message: 'Failed to fetch deals',
+      details: (error as Error).message,
+    });
+  }
+};
+
+export const listContactDealsHandler = async (req: Request, res: Response) => {
+  try {
+    const userId = getUserIdFromReq(req);
+    if (!userId) {
+      return sendError(res, {
+        success: false,
+        statusCode: 401,
+        message: 'You have no access to this route',
+      });
+    }
+
+    const contactId = objectIdSchema.parse(req.params.contactId);
+    const query = listContactDealsQuerySchema.parse({
+      page: getQueryValue(req.query.page),
+      limit: getQueryValue(req.query.limit),
+      search: getQueryValue(req.query.search) ?? getQueryValue(req.query.q),
+      status: getQueryValue(req.query.status),
+    });
+
+    const result = await listDealsByContact(userId, contactId, query);
+
+    if (result.status === 'contact_not_found') {
+      return sendError(res, {
+        success: false,
+        statusCode: 404,
+        message: 'Contact not found',
+      });
+    }
+
+    return sendResponse(res, {
+      success: true,
+      statusCode: 200,
+      message: 'Contact deals fetched successfully',
+      data: {
+        deals: result.deals,
+        pagination: result.pagination,
+      },
+    });
+  } catch (error) {
+    if (error instanceof ZodError) {
+      return sendError(res, {
+        success: false,
+        statusCode: 400,
+        message: 'Validation failed',
+        details: error.errors.map((e) => `${e.path.join('.')}: ${e.message}`).join(', '),
+      });
+    }
+    return sendError(res, {
+      success: false,
+      statusCode: 500,
+      message: 'Failed to fetch contact deals',
       details: (error as Error).message,
     });
   }

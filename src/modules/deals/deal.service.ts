@@ -164,6 +164,7 @@ type ListDealsQuery = {
   search?: string;
   status?: 'open' | 'won' | 'lost';
   pipelineId?: string;
+  contactId?: string;
 };
 
 const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -178,6 +179,10 @@ export const listDeals = async (ownerId: string, query: ListDealsQuery) => {
 
   if (query.pipelineId) {
     conditions.push({ pipelineId: query.pipelineId });
+  }
+
+  if (query.contactId) {
+    conditions.push({ contactId: query.contactId });
   }
 
   if (query.search) {
@@ -217,6 +222,31 @@ export const listDeals = async (ownerId: string, query: ListDealsQuery) => {
       hasPrevPage: query.page > 1,
     },
   };
+};
+
+type ListContactDealsQuery = {
+  page: number;
+  limit: number;
+  search?: string;
+  status?: 'open' | 'won' | 'lost';
+};
+
+export const listDealsByContact = async (
+  ownerId: string,
+  contactId: string,
+  query: ListContactDealsQuery
+) => {
+  const contactCheck = await validateContact(ownerId, contactId);
+  if (contactCheck.status !== 'ok') {
+    return { status: 'contact_not_found' as const };
+  }
+
+  const result = await listDeals(ownerId, {
+    ...query,
+    contactId,
+  });
+
+  return { status: 'ok' as const, ...result };
 };
 
 type UpdateDealInput = {
