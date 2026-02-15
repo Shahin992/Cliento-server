@@ -27,11 +27,8 @@ const TASK_ACCESS_ROLES = ['OWNER', 'ADMIN', 'MEMBER'];
  *           schema:
  *             type: object
  *             required:
- *               - ownerId
  *               - title
  *             properties:
- *               ownerId:
- *                 type: string
  *               title:
  *                 type: string
  *               description:

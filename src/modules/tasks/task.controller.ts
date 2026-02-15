@@ -31,7 +31,6 @@ const optionalNullableStringSchema = z.preprocess(
 );
 
 const createTaskSchema = z.object({
-  ownerId: objectIdSchema,
   title: z.string().trim().min(1).max(LENGTH.title),
   description: optionalNullableStringSchema.optional(),
   status: z.enum(['todo', 'in_progress', 'done']).optional(),
@@ -103,16 +102,8 @@ export const createTaskHandler = async (req: Request, res: Response) => {
     }
 
     const parsed = createTaskSchema.parse(req.body);
-    if (parsed.ownerId !== userId) {
-      return sendError(res, {
-        success: false,
-        statusCode: 403,
-        message: 'ownerId must match authenticated user',
-      });
-    }
-
     const result = await createTask({
-      ownerId: parsed.ownerId,
+      ownerId: userId,
       title: parsed.title,
       description: parsed.description ?? null,
       status: parsed.status,
