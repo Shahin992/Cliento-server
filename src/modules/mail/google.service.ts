@@ -236,22 +236,46 @@ export const getGoogleConnectUrl = (userId: string) => {
 export const handleGoogleOAuthCallback = async (code: string, state: string) => {
   const decoded = jwt.verify(state, getStateSecret()) as OAuthStatePayload;
   if (!decoded?.userId) {
+    console.error('Google OAuth callback rejected: invalid state payload');
     return { status: 'invalid_state' as const };
   }
 
   const oauth2Client = getOAuthClient();
   const { tokens } = await oauth2Client.getToken(code);
+  console.log('Google OAuth token exchange result', {
+    userId: decoded.userId,
+    hasAccessToken: Boolean(tokens.access_token),
+    hasRefreshToken: Boolean(tokens.refresh_token),
+    tokenType: tokens.token_type || null,
+    hasExpiryDate: Boolean(tokens.expiry_date),
+    scope: tokens.scope || null,
+  });
 
   if (!tokens.access_token || !tokens.refresh_token) {
+    console.error('Google OAuth callback rejected: missing required tokens', {
+      userId: decoded.userId,
+      hasAccessToken: Boolean(tokens.access_token),
+      hasRefreshToken: Boolean(tokens.refresh_token),
+    });
     return { status: 'missing_tokens' as const };
   }
 
   oauth2Client.setCredentials(tokens);
   const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
   const profile = await gmail.users.getProfile({ userId: 'me' });
+  console.log('Google Gmail profile result', {
+    userId: decoded.userId,
+    emailAddress: profile.data.emailAddress || null,
+    historyId: profile.data.historyId || null,
+    messagesTotal: profile.data.messagesTotal ?? null,
+    threadsTotal: profile.data.threadsTotal ?? null,
+  });
 
   const email = profile.data.emailAddress;
   if (!email) {
+    console.error('Google OAuth callback rejected: missing email in Gmail profile', {
+      userId: decoded.userId,
+    });
     return { status: 'missing_email' as const };
   }
 
@@ -291,6 +315,11 @@ export const handleGoogleOAuthCallback = async (code: string, state: string) => 
     },
     { upsert: true, new: true }
   );
+  console.log('Google mailbox connected successfully', {
+    userId: decoded.userId,
+    googleEmail: normalizedEmail,
+    isDefault: nextIsDefault,
+  });
 
   return {
     status: 'ok' as const,
