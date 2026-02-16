@@ -87,23 +87,19 @@ export const googleOAuthCallbackHandler = async (req: Request, res: Response) =>
     const result = await handleGoogleOAuthCallback(parsed.code, parsed.state);
 
     if (result.status === 'invalid_state') {
-      console.error('Google OAuth callback failed: invalid_state');
       return res.redirect(getFrontendRedirectUrl('error'));
     }
 
     if (result.status === 'missing_tokens') {
-      console.error('Google OAuth callback failed: missing_tokens');
       return res.redirect(getFrontendRedirectUrl('error'));
     }
 
     if (result.status === 'missing_email') {
-      console.error('Google OAuth callback failed: missing_email');
       return res.redirect(getFrontendRedirectUrl('error'));
     }
 
     return res.redirect(getFrontendRedirectUrl('success'));
   } catch (error) {
-    console.error('Google OAuth callback exception:', error);
     return res.redirect(getFrontendRedirectUrl('error'));
   }
 };

@@ -33,6 +33,7 @@ const GOOGLE_SCOPES = [
 ];
 
 const OAUTH_STATE_EXPIRY = '10m';
+let hasCheckedLegacyUserIdIndex = false;
 
 const getRequiredEnv = (name: string): string => {
   const value = process.env[name];
@@ -99,6 +100,23 @@ const getOAuthClient = () => {
   const redirectUri = getRequiredEnv('GOOGLE_REDIRECT_URI');
 
   return new google.auth.OAuth2(clientId, clientSecret, redirectUri);
+};
+
+const ensureLegacyUserIdUniqueIndexRemoved = async (force = false) => {
+  if (hasCheckedLegacyUserIdIndex && !force) return;
+
+  try {
+    const indexes = await GoogleMailbox.collection.indexes();
+    const legacyUserIdUnique = indexes.find(
+      (index) => index.name === 'userId_1' && index.unique && index.key && (index.key as Record<string, number>).userId === 1
+    );
+
+    if (legacyUserIdUnique) {
+      await GoogleMailbox.collection.dropIndex('userId_1');
+    }
+
+    hasCheckedLegacyUserIdIndex = true;
+  } catch {}
 };
 
 const toScopeArray = (scope?: string | null) => {
@@ -236,46 +254,22 @@ export const getGoogleConnectUrl = (userId: string) => {
 export const handleGoogleOAuthCallback = async (code: string, state: string) => {
   const decoded = jwt.verify(state, getStateSecret()) as OAuthStatePayload;
   if (!decoded?.userId) {
-    console.error('Google OAuth callback rejected: invalid state payload');
     return { status: 'invalid_state' as const };
   }
 
   const oauth2Client = getOAuthClient();
   const { tokens } = await oauth2Client.getToken(code);
-  console.log('Google OAuth token exchange result', {
-    userId: decoded.userId,
-    hasAccessToken: Boolean(tokens.access_token),
-    hasRefreshToken: Boolean(tokens.refresh_token),
-    tokenType: tokens.token_type || null,
-    hasExpiryDate: Boolean(tokens.expiry_date),
-    scope: tokens.scope || null,
-  });
 
   if (!tokens.access_token || !tokens.refresh_token) {
-    console.error('Google OAuth callback rejected: missing required tokens', {
-      userId: decoded.userId,
-      hasAccessToken: Boolean(tokens.access_token),
-      hasRefreshToken: Boolean(tokens.refresh_token),
-    });
     return { status: 'missing_tokens' as const };
   }
 
   oauth2Client.setCredentials(tokens);
   const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
   const profile = await gmail.users.getProfile({ userId: 'me' });
-  console.log('Google Gmail profile result', {
-    userId: decoded.userId,
-    emailAddress: profile.data.emailAddress || null,
-    historyId: profile.data.historyId || null,
-    messagesTotal: profile.data.messagesTotal ?? null,
-    threadsTotal: profile.data.threadsTotal ?? null,
-  });
 
   const email = profile.data.emailAddress;
   if (!email) {
-    console.error('Google OAuth callback rejected: missing email in Gmail profile', {
-      userId: decoded.userId,
-    });
     return { status: 'missing_email' as const };
   }
 
@@ -294,33 +288,46 @@ export const handleGoogleOAuthCallback = async (code: string, state: string) => 
 
   const nextIsDefault = existingMailbox?.isDefault ? true : !hasOtherDefaultMailbox;
 
-  await GoogleMailbox.findOneAndUpdate(
-    { userId: decoded.userId, googleEmail: normalizedEmail },
-    {
-      $set: {
-        userId: decoded.userId,
-        googleEmail: normalizedEmail,
-        accessToken: encryptToken(tokens.access_token),
-        refreshToken: encryptToken(tokens.refresh_token),
-        tokenType: tokens.token_type || null,
-        scope: toScopeArray(tokens.scope),
-        expiryDate: tokens.expiry_date ? new Date(tokens.expiry_date) : null,
-        historyId: profile.data.historyId || null,
-        isDefault: nextIsDefault,
-        isDisconnected: false,
-        isDeleted: false,
-        disconnectedAt: null,
-        deletedAt: null,
-      },
-    },
-    { upsert: true, new: true }
-  );
-  console.log('Google mailbox connected successfully', {
-    userId: decoded.userId,
-    googleEmail: normalizedEmail,
-    isDefault: nextIsDefault,
-  });
+  await ensureLegacyUserIdUniqueIndexRemoved();
 
+  const upsertPayload = {
+    $set: {
+      userId: decoded.userId,
+      googleEmail: normalizedEmail,
+      accessToken: encryptToken(tokens.access_token),
+      refreshToken: encryptToken(tokens.refresh_token),
+      tokenType: tokens.token_type || null,
+      scope: toScopeArray(tokens.scope),
+      expiryDate: tokens.expiry_date ? new Date(tokens.expiry_date) : null,
+      historyId: profile.data.historyId || null,
+      isDefault: nextIsDefault,
+      isDisconnected: false,
+      isDeleted: false,
+      disconnectedAt: null,
+      deletedAt: null,
+    },
+  };
+
+  try {
+    await GoogleMailbox.findOneAndUpdate({ userId: decoded.userId, googleEmail: normalizedEmail }, upsertPayload, {
+      upsert: true,
+      new: true,
+    });
+  } catch (error) {
+    const mongoError = error as { code?: number; keyPattern?: Record<string, number> };
+    const isLegacyDuplicateUserId = mongoError.code === 11000 && mongoError.keyPattern?.userId === 1;
+
+    if (!isLegacyDuplicateUserId) {
+      throw error;
+    }
+
+    await ensureLegacyUserIdUniqueIndexRemoved(true);
+
+    await GoogleMailbox.findOneAndUpdate({ userId: decoded.userId, googleEmail: normalizedEmail }, upsertPayload, {
+      upsert: true,
+      new: true,
+    });
+  }
   return {
     status: 'ok' as const,
     userId: decoded.userId,
