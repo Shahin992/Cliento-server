@@ -12,7 +12,7 @@ import {
 } from './pipeline.controller';
 
 const router = Router();
-const PIPELINE_ACCESS_ROLES = ['OWNER', 'ADMIN', 'MEMBER'];
+const PIPELINE_ACCESS_ROLES = ['SUPER_ADMIN','OWNER', 'ADMIN', 'MEMBER'];
 
 /**
  * @swagger

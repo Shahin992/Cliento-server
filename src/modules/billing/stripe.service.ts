@@ -1,0 +1,173 @@
+import { BillingCurrency, BillingCycle, IPackagePriceInput } from './package.interface';
+
+type StripeInterval = 'month' | 'year';
+
+type StripeCreateCatalogInput = {
+  code: string;
+  name: string;
+  description?: string | null;
+  hasTrial: boolean;
+  trialPeriodDays: number;
+  billingCycle: BillingCycle;
+  price: IPackagePriceInput;
+};
+
+class StripeIntegrationError extends Error {
+  status: 'missing_secret_key' | 'stripe_api_error';
+
+  constructor(status: 'missing_secret_key' | 'stripe_api_error', message: string) {
+    super(message);
+    this.status = status;
+  }
+}
+
+const getStripeConfig = () => {
+  const secretKey = process.env.STRIPE_SECRET_KEY;
+  if (!secretKey) {
+    throw new StripeIntegrationError('missing_secret_key', 'Missing STRIPE_SECRET_KEY in environment.');
+  }
+
+  const baseUrl = process.env.STRIPE_API_BASE_URL || 'https://api.stripe.com';
+  return { secretKey, baseUrl };
+};
+
+const convertAmountToMinorUnit = (amount: number, currency: BillingCurrency) => {
+  const twoDecimalCurrencies = new Set<BillingCurrency>(['usd', 'eur', 'gbp', 'bdt']);
+  if (!twoDecimalCurrencies.has(currency)) return Math.round(amount);
+  return Math.round(amount * 100);
+};
+
+const postToStripe = async (path: string, body: URLSearchParams) => {
+  const { secretKey, baseUrl } = getStripeConfig();
+  const response = await fetch(`${baseUrl}${path}`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${secretKey}`,
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body: body.toString(),
+  });
+
+  const json = await response.json();
+  if (!response.ok) {
+    const message = json?.error?.message || 'Stripe API request failed.';
+    throw new StripeIntegrationError('stripe_api_error', message);
+  }
+
+  return json as Record<string, any>;
+};
+
+const createStripeProduct = async (payload: StripeCreateCatalogInput) => {
+  const body = new URLSearchParams();
+  body.append('name', payload.name);
+  if (payload.description) body.append('description', payload.description);
+  body.append('metadata[package_code]', payload.code.toLowerCase());
+  body.append('metadata[has_trial]', String(payload.hasTrial));
+  body.append('metadata[trial_days]', String(payload.trialPeriodDays));
+
+  const product = await postToStripe('/v1/products', body);
+  return String(product.id);
+};
+
+const createStripeRecurringPrice = async (
+  stripeProductId: string,
+  amount: number,
+  currency: BillingCurrency,
+  interval: StripeInterval
+) => {
+  const body = new URLSearchParams();
+  body.append('product', stripeProductId);
+  body.append('currency', currency);
+  body.append('unit_amount', String(convertAmountToMinorUnit(amount, currency)));
+  body.append('recurring[interval]', interval);
+  body.append('active', 'true');
+  body.append('metadata[billing_interval]', interval);
+
+  const price = await postToStripe('/v1/prices', body);
+  return String(price.id);
+};
+
+const deactivateStripePrice = async (priceId: string) => {
+  const body = new URLSearchParams();
+  body.append('active', 'false');
+  await postToStripe(`/v1/prices/${priceId}`, body);
+};
+
+const deactivateStripeProduct = async (productId: string) => {
+  const body = new URLSearchParams();
+  body.append('active', 'false');
+  await postToStripe(`/v1/products/${productId}`, body);
+};
+
+const createStripePaymentLink = async (
+  stripePriceId: string,
+  hasTrial: boolean,
+  trialPeriodDays: number
+) => {
+  const body = new URLSearchParams();
+  body.append('line_items[0][price]', stripePriceId);
+  body.append('line_items[0][quantity]', '1');
+  if (hasTrial && trialPeriodDays > 0) {
+    body.append('subscription_data[trial_period_days]', String(trialPeriodDays));
+  }
+
+  const paymentLink = await postToStripe('/v1/payment_links', body);
+  return {
+    id: String(paymentLink.id),
+    url: String(paymentLink.url),
+  };
+};
+
+export const deactivateStripePaymentLink = async (paymentLinkId: string) => {
+  const body = new URLSearchParams();
+  body.append('active', 'false');
+  await postToStripe(`/v1/payment_links/${paymentLinkId}`, body);
+};
+
+export const createStripeCatalog = async (payload: StripeCreateCatalogInput) => {
+  const stripeProductId = await createStripeProduct(payload);
+  let stripePriceId: string | null = null;
+  let stripePaymentLinkId: string | null = null;
+  let buyLinkUrl: string | null = null;
+
+  try {
+    stripePriceId = await createStripeRecurringPrice(
+      stripeProductId,
+      payload.price.amount,
+      payload.price.currency,
+      payload.billingCycle === 'monthly' ? 'month' : 'year'
+    );
+
+    const paymentLink = await createStripePaymentLink(
+      stripePriceId,
+      payload.hasTrial,
+      payload.trialPeriodDays
+    );
+    stripePaymentLinkId = paymentLink.id;
+    buyLinkUrl = paymentLink.url;
+
+    return { stripeProductId, stripePriceId, stripePaymentLinkId, buyLinkUrl };
+  } catch (error) {
+    const rollbackJobs: Promise<unknown>[] = [];
+    if (stripePaymentLinkId) rollbackJobs.push(deactivateStripePaymentLink(stripePaymentLinkId));
+    if (stripePriceId) rollbackJobs.push(deactivateStripePrice(stripePriceId));
+    rollbackJobs.push(deactivateStripeProduct(stripeProductId));
+    await Promise.allSettled(rollbackJobs);
+    throw error;
+  }
+};
+
+export const rollbackStripeCatalog = async (
+  stripeProductId: string,
+  stripePriceId?: string | null,
+  stripePaymentLinkId?: string | null
+) => {
+  const rollbackJobs: Promise<unknown>[] = [deactivateStripeProduct(stripeProductId)];
+  if (stripePaymentLinkId) rollbackJobs.push(deactivateStripePaymentLink(stripePaymentLinkId));
+  if (stripePriceId) rollbackJobs.push(deactivateStripePrice(stripePriceId));
+  await Promise.allSettled(rollbackJobs);
+};
+
+export const deactivateStripeCatalog = rollbackStripeCatalog;
+
+export { StripeIntegrationError };

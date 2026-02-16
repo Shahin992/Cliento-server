@@ -10,6 +10,7 @@ import pipelineRoutes from '../src/modules/deals/pipeline.route';
 import dealRoutes from '../src/modules/deals/deal.route';
 import taskRoutes from '../src/modules/tasks/task.route';
 import googleMailRoutes from '../src/modules/mail/google.route';
+import packageRoutes from '../src/modules/billing/package.route';
 import { connectDB } from './config/db';
 import path from 'path';
 const express = require('express');
@@ -62,6 +63,7 @@ const swaggerSpec = swaggerJSDoc({
             { name: 'Deals' },
             { name: 'Tasks' },
             { name: 'Mail' },
+            { name: 'Packages' },
         ],
         servers: [
             {
@@ -86,7 +88,7 @@ app.use('/api-docs', swaggerUi.serve);
 app.get('/api-docs', swaggerUi.setup(swaggerSpec, {
     swaggerOptions: {
         tagsSorter: (a: string, b: string) => {
-            const tagOrder = ['Upload', 'Auth', 'Users', 'Contacts', 'Pipelines', 'Deals', 'Tasks', 'Mail'];
+            const tagOrder = ['Upload', 'Auth', 'Users', 'Contacts', 'Pipelines', 'Deals', 'Tasks', 'Mail', 'Packages'];
             const rankA = tagOrder.indexOf(a);
             const rankB = tagOrder.indexOf(b);
             const hasRankA = rankA !== -1;
@@ -113,6 +115,7 @@ app.get('/api-docs', swaggerUi.setup(swaggerSpec, {
                 '/api/deals': 6,
                 '/api/tasks': 7,
                 '/api/mail/google': 8,
+                '/api/packages': 9,
             };
 
             const getPathRank = (path: string) => {
@@ -145,6 +148,7 @@ app.use('/api/pipelines', pipelineRoutes);
 app.use('/api/deals', dealRoutes);
 app.use('/api/tasks', taskRoutes);
 app.use('/api/mail/google', googleMailRoutes);
+app.use('/api/packages', packageRoutes);
 app.get('/health-check', (_req: Request, res: Response) => {
     return res.status(200).json({
         success: true,

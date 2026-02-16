@@ -1,0 +1,246 @@
+import { Router } from 'express';
+import { authenticate, authorize } from '../../middleware/authMiddlewares';
+import {
+  createBillingPackageHandler,
+  deactivateBillingPackageHandler,
+  deleteBillingPackageHandler,
+  listPublicBillingPackagesHandler,
+  updateBillingPackageHandler,
+} from './package.controller';
+
+const router = Router();
+
+/**
+ * @swagger
+ * /api/packages/public:
+ *   get:
+ *     tags:
+ *       - Packages
+ *     summary: List active billing packages with buy links (public)
+ *     responses:
+ *       200:
+ *         description: Billing packages fetched successfully
+ */
+router.get('/public', listPublicBillingPackagesHandler);
+
+/**
+ * @swagger
+ * /api/packages:
+ *   post:
+ *     tags:
+ *       - Packages
+ *     summary: Create a billing package in Stripe and store in DB (SUPER_ADMIN only)
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - code
+ *               - name
+ *               - billingCycle
+ *               - price
+ *             properties:
+ *               code:
+ *                 type: string
+ *                 example: pro
+ *               name:
+ *                 type: string
+ *                 example: Pro Plan
+ *               description:
+ *                 type: string
+ *                 nullable: true
+ *               billingCycle:
+ *                 type: string
+ *                 enum: [monthly, yearly]
+ *               hasTrial:
+ *                 type: boolean
+ *                 default: true
+ *               trialPeriodDays:
+ *                 type: integer
+ *                 default: 14
+ *               price:
+ *                 type: object
+ *                 required: true
+ *                 properties:
+ *                   amount:
+ *                     type: number
+ *                   currency:
+ *                     type: string
+ *                     enum: [usd, eur, gbp, bdt]
+ *               limits:
+ *                 type: object
+ *                 properties:
+ *                   users:
+ *                     type: integer
+ *                     nullable: true
+ *               features:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *               isActive:
+ *                 type: boolean
+ *               isDefault:
+ *                 type: boolean
+ *     responses:
+ *       201:
+ *         description: Billing package created successfully
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden (SUPER_ADMIN only)
+ *       409:
+ *         description: Package code already exists
+ *       502:
+ *         description: Stripe package creation failed
+ */
+router.post('/', authenticate, authorize(['SUPER_ADMIN']), createBillingPackageHandler);
+
+/**
+ * @swagger
+ * /api/packages/{packageId}:
+ *   put:
+ *     tags:
+ *       - Packages
+ *     summary: Update a billing package in Stripe and DB (SUPER_ADMIN only)
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: packageId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Billing package id
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - code
+ *               - name
+ *               - billingCycle
+ *               - price
+ *             properties:
+ *               code:
+ *                 type: string
+ *                 example: pro
+ *               name:
+ *                 type: string
+ *                 example: Pro Plan
+ *               description:
+ *                 type: string
+ *                 nullable: true
+ *               billingCycle:
+ *                 type: string
+ *                 enum: [monthly, yearly]
+ *               hasTrial:
+ *                 type: boolean
+ *                 default: true
+ *               trialPeriodDays:
+ *                 type: integer
+ *                 default: 14
+ *               price:
+ *                 type: object
+ *                 properties:
+ *                   amount:
+ *                     type: number
+ *                   currency:
+ *                     type: string
+ *                     enum: [usd, eur, gbp, bdt]
+ *               limits:
+ *                 type: object
+ *                 properties:
+ *                   users:
+ *                     type: integer
+ *                     nullable: true
+ *               features:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *               isActive:
+ *                 type: boolean
+ *               isDefault:
+ *                 type: boolean
+ *     responses:
+ *       200:
+ *         description: Billing package updated successfully
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden (SUPER_ADMIN only)
+ *       404:
+ *         description: Package not found
+ *       409:
+ *         description: Package code already exists
+ *       502:
+ *         description: Stripe request failed
+ */
+router.put('/:packageId', authenticate, authorize(['SUPER_ADMIN']), updateBillingPackageHandler);
+
+/**
+ * @swagger
+ * /api/packages/deactivate/{packageId}:
+ *   patch:
+ *     tags:
+ *       - Packages
+ *     summary: Deactivate a billing package (SUPER_ADMIN only)
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: packageId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Billing package id
+ *     responses:
+ *       200:
+ *         description: Billing package deactivated successfully
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden (SUPER_ADMIN only)
+ *       404:
+ *         description: Package not found
+ *       502:
+ *         description: Stripe request failed
+ */
+router.patch('/deactivate/:packageId', authenticate, authorize(['SUPER_ADMIN']), deactivateBillingPackageHandler);
+
+/**
+ * @swagger
+ * /api/packages/{packageId}:
+ *   delete:
+ *     tags:
+ *       - Packages
+ *     summary: Delete a billing package (SUPER_ADMIN only)
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: packageId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Billing package id
+ *     responses:
+ *       200:
+ *         description: Billing package deleted successfully
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden (SUPER_ADMIN only)
+ *       404:
+ *         description: Package not found
+ *       502:
+ *         description: Stripe request failed
+ */
+router.delete('/:packageId', authenticate, authorize(['SUPER_ADMIN']), deleteBillingPackageHandler);
+
+export default router;
