@@ -300,7 +300,7 @@ export const handleGoogleOAuthCallback = async (code: string, state: string) => 
 };
 
 export const getGoogleMailboxList = async (userId: string) => {
-  const mailboxes = await GoogleMailbox.find({ userId })
+  const mailboxes = await GoogleMailbox.find({ userId, isDeleted: false })
     .select('googleEmail expiryDate updatedAt isDefault isDisconnected isDeleted disconnectedAt deletedAt')
     .sort({ isDefault: -1, updatedAt: -1 });
 
