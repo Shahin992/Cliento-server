@@ -10,6 +10,7 @@ Cliento Server is an Express + TypeScript + MongoDB API that provides:
 - Deal and pipeline management for CRM workflows
 - File upload support via Cloudinary
 - Email delivery for onboarding and password reset flows (Brevo)
+- Gmail OAuth integration for user mailbox send/receive
 - Interactive API documentation with Swagger (`/api-docs`)
 
 ## Tech Stack
@@ -21,6 +22,7 @@ Cliento Server is an Express + TypeScript + MongoDB API that provides:
 - JWT authentication
 - Cloudinary (media upload)
 - Brevo SMTP/API (email)
+- Google OAuth + Gmail API (connected mailbox)
 - Swagger UI + swagger-jsdoc
 
 ## Project Setup
@@ -73,6 +75,7 @@ http://localhost:8000/api-docs
 - `/api/contacts`
 - `/api/pipelines`
 - `/api/deals`
+- `/api/mail/google`
 
 ## To Be Continued
 
