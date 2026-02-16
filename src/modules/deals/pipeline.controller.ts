@@ -5,6 +5,7 @@ import {
   addPipelineStage,
   createPipeline,
   deletePipeline,
+  getPipelineById,
   getPipelineStages,
   listPipelines,
   updatePipeline,
@@ -68,8 +69,33 @@ const updatePipelineSchema = z.object({
 }).refine((data) => Object.keys(data).length > 0, {
   message: 'At least one field is required',
 });
+const deletePipelineSchema = z.object({
+  dealAction: z.enum(['move', 'delete']),
+  targetPipelineId: objectIdSchema.optional(),
+}).superRefine((data, ctx) => {
+  if (data.dealAction === 'move' && !data.targetPipelineId) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['targetPipelineId'],
+      message: 'targetPipelineId is required when dealAction is move',
+    });
+  }
+});
+const listPipelinesQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(500).default(10),
+  search: z.preprocess(
+    (value) => {
+      if (typeof value !== 'string') return undefined;
+      const trimmed = value.trim();
+      return trimmed.length > 0 ? trimmed : undefined;
+    },
+    z.string().max(LENGTH.pipelineName).optional()
+  ),
+});
 
 const getUserIdFromReq = (req: Request) => (req as any).user?.id as string | undefined;
+const getQueryValue = (value: unknown) => (typeof value === 'string' ? value : undefined);
 
 export const createPipelineHandler = async (req: Request, res: Response) => {
   try {
@@ -205,7 +231,13 @@ export const listPipelinesHandler = async (req: Request, res: Response) => {
       });
     }
 
-    const pipelines = await listPipelines(userId);
+    const query = listPipelinesQuerySchema.parse({
+      page: getQueryValue(req.query.page),
+      limit: getQueryValue(req.query.limit),
+      search: getQueryValue(req.query.search) ?? getQueryValue(req.query.q),
+    });
+
+    const pipelines = await listPipelines(userId, query);
     return sendResponse(res, {
       success: true,
       statusCode: 200,
@@ -213,10 +245,64 @@ export const listPipelinesHandler = async (req: Request, res: Response) => {
       data: pipelines,
     });
   } catch (error) {
+    if (error instanceof ZodError) {
+      return sendError(res, {
+        success: false,
+        statusCode: 400,
+        message: 'Validation failed',
+        details: error.errors.map((e) => `${e.path.join('.')}: ${e.message}`).join(', '),
+      });
+    }
     return sendError(res, {
       success: false,
       statusCode: 500,
       message: 'Failed to fetch pipelines',
+      details: (error as Error).message,
+    });
+  }
+};
+
+export const getPipelineByIdHandler = async (req: Request, res: Response) => {
+  try {
+    const userId = getUserIdFromReq(req);
+    if (!userId) {
+      return sendError(res, {
+        success: false,
+        statusCode: 401,
+        message: 'You have no access to this route',
+      });
+    }
+
+    const pipelineId = objectIdSchema.parse(req.params.pipelineId);
+    const result = await getPipelineById(userId, pipelineId);
+
+    if (result.status === 'pipeline_not_found') {
+      return sendError(res, {
+        success: false,
+        statusCode: 404,
+        message: 'Pipeline not found',
+      });
+    }
+
+    return sendResponse(res, {
+      success: true,
+      statusCode: 200,
+      message: 'Pipeline fetched successfully',
+      data: result.pipeline,
+    });
+  } catch (error) {
+    if (error instanceof ZodError) {
+      return sendError(res, {
+        success: false,
+        statusCode: 400,
+        message: 'Validation failed',
+        details: error.errors.map((e) => `${e.path.join('.')}: ${e.message}`).join(', '),
+      });
+    }
+    return sendError(res, {
+      success: false,
+      statusCode: 500,
+      message: 'Failed to fetch pipeline',
       details: (error as Error).message,
     });
   }
@@ -341,10 +427,13 @@ export const deletePipelineHandler = async (req: Request, res: Response) => {
     }
 
     const pipelineId = objectIdSchema.parse(req.params.pipelineId);
+    const parsed = deletePipelineSchema.parse(req.body);
     const result = await deletePipeline({
       ownerId: userId,
       pipelineId,
       deletedBy: userId,
+      dealAction: parsed.dealAction,
+      targetPipelineId: parsed.targetPipelineId,
     });
 
     if (result.status === 'pipeline_not_found') {
@@ -354,12 +443,38 @@ export const deletePipelineHandler = async (req: Request, res: Response) => {
         message: 'Pipeline not found',
       });
     }
+    if (result.status === 'target_pipeline_not_found') {
+      return sendError(res, {
+        success: false,
+        statusCode: 404,
+        message: 'Target pipeline not found',
+      });
+    }
+    if (result.status === 'invalid_target_pipeline') {
+      return sendError(res, {
+        success: false,
+        statusCode: 400,
+        message: 'targetPipelineId must be a different pipeline',
+      });
+    }
+    if (result.status === 'target_pipeline_has_no_stages') {
+      return sendError(res, {
+        success: false,
+        statusCode: 400,
+        message: 'Target pipeline has no stages',
+      });
+    }
 
     return sendResponse(res, {
       success: true,
       statusCode: 200,
       message: 'Pipeline deleted successfully',
-      data: result.pipeline,
+      data: {
+        pipeline: result.pipeline,
+        dealsAffected: result.dealsAffected,
+        dealAction: result.dealAction,
+        targetPipelineId: result.targetPipelineId,
+      },
     });
   } catch (error) {
     if (error instanceof ZodError) {

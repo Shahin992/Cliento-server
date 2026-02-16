@@ -4,6 +4,7 @@ import {
   addPipelineStageHandler,
   createPipelineHandler,
   deletePipelineHandler,
+  getPipelineByIdHandler,
   getPipelineStagesHandler,
   listPipelinesHandler,
   updatePipelineHandler,
@@ -60,6 +61,22 @@ router.post('/', authenticate, authorize(PIPELINE_ACCESS_ROLES), createPipelineH
  *     summary: List pipelines (without stages)
  *     security:
  *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           default: 1
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 10
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *         description: Search by pipeline name
  *     responses:
  *       200:
  *         description: Pipelines fetched successfully
@@ -135,6 +152,29 @@ router.get('/:pipelineId/stages', authenticate, authorize(PIPELINE_ACCESS_ROLES)
 /**
  * @swagger
  * /api/pipelines/{pipelineId}:
+ *   get:
+ *     tags:
+ *       - Pipelines
+ *     summary: Get pipeline details
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: pipelineId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Pipeline fetched successfully
+ *       404:
+ *         description: Pipeline not found
+ */
+router.get('/:pipelineId', authenticate, authorize(PIPELINE_ACCESS_ROLES), getPipelineByIdHandler);
+
+/**
+ * @swagger
+ * /api/pipelines/{pipelineId}:
  *   put:
  *     tags:
  *       - Pipelines
@@ -183,6 +223,22 @@ router.put('/:pipelineId', authenticate, authorize(PIPELINE_ACCESS_ROLES), updat
  *         required: true
  *         schema:
  *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - dealAction
+ *             properties:
+ *               dealAction:
+ *                 type: string
+ *                 enum: [move, delete]
+ *                 description: move reassigns deals to another pipeline, delete soft-deletes related deals
+ *               targetPipelineId:
+ *                 type: string
+ *                 description: Required when dealAction is move
  *     responses:
  *       200:
  *         description: Pipeline deleted successfully

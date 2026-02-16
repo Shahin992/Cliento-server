@@ -1,4 +1,5 @@
 import { CreatePipelineInput, CreatePipelineStageInput } from './deal.interface';
+import { Deal } from './deal.model';
 import { Pipeline } from './pipeline.model';
 
 const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -183,38 +184,149 @@ type DeletePipelineInput = {
   ownerId: string;
   pipelineId: string;
   deletedBy: string;
+  dealAction: 'move' | 'delete';
+  targetPipelineId?: string;
 };
 
 export const deletePipeline = async (payload: DeletePipelineInput) => {
-  const pipeline = await Pipeline.findOneAndUpdate(
-    { _id: payload.pipelineId, ownerId: payload.ownerId, deletedAt: null },
-    {
-      deletedAt: new Date(),
-      deletedBy: payload.deletedBy,
-      updatedBy: payload.deletedBy,
-      isDefault: false,
-    },
-    { new: true }
-  );
+  const pipeline = await Pipeline.findOne({
+    _id: payload.pipelineId,
+    ownerId: payload.ownerId,
+    deletedAt: null,
+  });
 
   if (!pipeline) {
     return { status: 'pipeline_not_found' as const };
   }
 
-  return { status: 'ok' as const, pipeline };
+  const now = new Date();
+  let dealsAffected = 0;
+
+  if (payload.dealAction === 'move') {
+    if (!payload.targetPipelineId || payload.targetPipelineId === payload.pipelineId) {
+      return { status: 'invalid_target_pipeline' as const };
+    }
+
+    const targetPipeline = await Pipeline.findOne({
+      _id: payload.targetPipelineId,
+      ownerId: payload.ownerId,
+      deletedAt: null,
+    }).select('_id stages');
+
+    if (!targetPipeline) {
+      return { status: 'target_pipeline_not_found' as const };
+    }
+
+    const sortedStages = [...targetPipeline.stages].sort((a, b) => a.order - b.order);
+    const targetStage = sortedStages.find((stage) => stage.isDefault) ?? sortedStages[0];
+    if (!targetStage) {
+      return { status: 'target_pipeline_has_no_stages' as const };
+    }
+
+    const moveResult = await Deal.updateMany(
+      { ownerId: payload.ownerId, pipelineId: payload.pipelineId, deletedAt: null },
+      {
+        $set: {
+          pipelineId: payload.targetPipelineId,
+          stageId: targetStage._id,
+          updatedBy: payload.deletedBy,
+        },
+      }
+    );
+    dealsAffected = moveResult.modifiedCount ?? 0;
+  } else {
+    const deleteDealsResult = await Deal.updateMany(
+      { ownerId: payload.ownerId, pipelineId: payload.pipelineId, deletedAt: null },
+      {
+        $set: {
+          deletedAt: now,
+          deletedBy: payload.deletedBy,
+          updatedBy: payload.deletedBy,
+        },
+      }
+    );
+    dealsAffected = deleteDealsResult.modifiedCount ?? 0;
+  }
+
+  pipeline.deletedAt = now;
+  pipeline.deletedBy = payload.deletedBy as any;
+  pipeline.updatedBy = payload.deletedBy as any;
+  pipeline.isDefault = false;
+  await pipeline.save();
+
+  return {
+    status: 'ok' as const,
+    pipeline,
+    dealsAffected,
+    dealAction: payload.dealAction,
+    targetPipelineId: payload.targetPipelineId ?? null,
+  };
 };
 
-export const listPipelines = async (ownerId: string) => {
-  const pipelines = await Pipeline.find({ ownerId, deletedAt: null })
-    .select('_id name')
-    .sort({ createdAt: -1 });
+type ListPipelinesQuery = {
+  page: number;
+  limit: number;
+  search?: string;
+};
 
-  return pipelines;
+export const listPipelines = async (ownerId: string, query: ListPipelinesQuery) => {
+  const baseFilter: Record<string, unknown> = { ownerId, deletedAt: null };
+  if (query.search) {
+    baseFilter.name = new RegExp(escapeRegExp(query.search.trim()), 'i');
+  }
+
+  const skip = (query.page - 1) * query.limit;
+
+  const [pipelines, total] = await Promise.all([
+    Pipeline.find(baseFilter)
+      .select('_id name isDefault createdAt updatedAt')
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(query.limit),
+    Pipeline.countDocuments(baseFilter),
+  ]);
+
+  const totalPages = Math.ceil(total / query.limit);
+
+  return {
+    pipelines,
+    pagination: {
+      page: query.page,
+      limit: query.limit,
+      total,
+      totalPages,
+      hasNextPage: query.page < totalPages,
+      hasPrevPage: query.page > 1,
+    },
+  };
 };
 
 export const getPipelineStages = async (ownerId: string, pipelineId: string) => {
   const pipeline = await Pipeline.findOne({ _id: pipelineId, ownerId, deletedAt: null })
-    .select('_id name stages');
+    .select('_id name isDefault stages createdAt updatedAt');
+
+  if (!pipeline) {
+    return { status: 'pipeline_not_found' as const };
+  }
+
+  const sortedStages = [...pipeline.stages].sort((a, b) => a.order - b.order);
+
+  return {
+    status: 'ok' as const,
+    pipeline: {
+      _id: pipeline._id,
+      name: pipeline.name,
+      isDefault: pipeline.isDefault,
+      createdAt: (pipeline as any).createdAt,
+      updatedAt: (pipeline as any).updatedAt,
+      stages: sortedStages,
+    },
+  };
+};
+
+export const getPipelineById = async (ownerId: string, pipelineId: string) => {
+  const pipeline = await Pipeline.findOne({ _id: pipelineId, ownerId, deletedAt: null })
+    .select('_id name isDefault stages createdAt updatedAt');
 
   if (!pipeline) {
     return { status: 'pipeline_not_found' as const };
