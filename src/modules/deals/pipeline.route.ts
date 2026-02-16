@@ -7,6 +7,7 @@ import {
   getPipelineByIdHandler,
   getPipelineStagesHandler,
   listPipelinesHandler,
+  listPipelinesWithStagesHandler,
   updatePipelineHandler,
 } from './pipeline.controller';
 
@@ -82,6 +83,37 @@ router.post('/', authenticate, authorize(PIPELINE_ACCESS_ROLES), createPipelineH
  *         description: Pipelines fetched successfully
  */
 router.get('/', authenticate, authorize(PIPELINE_ACCESS_ROLES), listPipelinesHandler);
+
+/**
+ * @swagger
+ * /api/pipelines/with-stages:
+ *   get:
+ *     tags:
+ *       - Pipelines
+ *     summary: List pipelines with stages
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           default: 1
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 10
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *         description: Search by pipeline name
+ *     responses:
+ *       200:
+ *         description: Pipelines with stages fetched successfully
+ */
+router.get('/with-stages', authenticate, authorize(PIPELINE_ACCESS_ROLES), listPipelinesWithStagesHandler);
 
 /**
  * @swagger
@@ -200,6 +232,26 @@ router.get('/:pipelineId', authenticate, authorize(PIPELINE_ACCESS_ROLES), getPi
  *                 type: boolean
  *                 default: false
  *                 description: Defaults to false unless explicitly sent as true
+ *               stages:
+ *                 type: array
+ *                 description: Replaces pipeline stages; supports rename, remove and add
+ *                 items:
+ *                   type: object
+ *                   required:
+ *                     - name
+ *                   properties:
+ *                     _id:
+ *                       type: string
+ *                       description: Existing stage id. Omit for new stage.
+ *                     name:
+ *                       type: string
+ *                     color:
+ *                       type: string
+ *                       nullable: true
+ *                     order:
+ *                       type: integer
+ *                     isDefault:
+ *                       type: boolean
  *     responses:
  *       200:
  *         description: Pipeline updated successfully

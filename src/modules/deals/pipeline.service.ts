@@ -1,6 +1,7 @@
 import { CreatePipelineInput, CreatePipelineStageInput } from './deal.interface';
 import { Deal } from './deal.model';
 import { Pipeline } from './pipeline.model';
+import { Types } from 'mongoose';
 
 const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -128,6 +129,13 @@ type UpdatePipelineInput = {
   pipelineId: string;
   name?: string;
   isDefault?: boolean;
+  stages?: Array<{
+    _id?: string;
+    name: string;
+    color?: string | null;
+    order?: number;
+    isDefault?: boolean;
+  }>;
   updatedBy: string;
 };
 
@@ -162,6 +170,65 @@ export const updatePipeline = async (payload: UpdatePipelineInput) => {
     pipeline.isDefault = payload.isDefault;
   }
 
+  let movedDealsCount = 0;
+  if (payload.stages !== undefined) {
+    const existingStageMap = new Map(pipeline.stages.map((stage) => [String(stage._id), stage]));
+
+    for (const stage of payload.stages) {
+      if (stage._id && !existingStageMap.has(stage._id)) {
+        return { status: 'invalid_stage_id' as const };
+      }
+    }
+
+    const nextStages = payload.stages.map((stage, index) => ({
+      _id: stage._id ? new Types.ObjectId(stage._id) : new Types.ObjectId(),
+      name: stage.name.trim(),
+      color: stage.color ?? null,
+      order: stage.order ?? index,
+      isDefault: stage.isDefault ?? false,
+    }));
+
+    const orderSet = new Set<number>();
+    for (const stage of nextStages) {
+      if (orderSet.has(stage.order)) {
+        return { status: 'duplicate_stage_order' as const };
+      }
+      orderSet.add(stage.order);
+    }
+
+    const nextStageIds = new Set(nextStages.map((stage) => String(stage._id)));
+    const removedStageIds = pipeline.stages
+      .map((stage) => String(stage._id))
+      .filter((stageId) => !nextStageIds.has(stageId));
+
+    const sortedStages = [...nextStages].sort((a, b) => a.order - b.order);
+    const fallbackStage = sortedStages.find((stage) => stage.isDefault) ?? sortedStages[0];
+
+    if (!fallbackStage) {
+      return { status: 'invalid_stages' as const };
+    }
+
+    if (removedStageIds.length > 0) {
+      const moveDealsResult = await Deal.updateMany(
+        {
+          ownerId: payload.ownerId,
+          pipelineId: payload.pipelineId,
+          stageId: { $in: removedStageIds.map((id) => new Types.ObjectId(id)) },
+          deletedAt: null,
+        },
+        {
+          $set: {
+            stageId: fallbackStage._id,
+            updatedBy: payload.updatedBy,
+          },
+        }
+      );
+      movedDealsCount = moveDealsResult.modifiedCount ?? 0;
+    }
+
+    pipeline.stages = sortedStages as any;
+  }
+
   pipeline.updatedBy = payload.updatedBy as any;
   await pipeline.save();
 
@@ -177,7 +244,7 @@ export const updatePipeline = async (payload: UpdatePipelineInput) => {
     );
   }
 
-  return { status: 'ok' as const, pipeline };
+  return { status: 'ok' as const, pipeline, movedDealsCount };
 };
 
 type DeletePipelineInput = {
@@ -290,6 +357,50 @@ export const listPipelines = async (ownerId: string, query: ListPipelinesQuery) 
 
   return {
     pipelines,
+    pagination: {
+      page: query.page,
+      limit: query.limit,
+      total,
+      totalPages,
+      hasNextPage: query.page < totalPages,
+      hasPrevPage: query.page > 1,
+    },
+  };
+};
+
+export const listPipelinesWithStages = async (ownerId: string, query: ListPipelinesQuery) => {
+  const baseFilter: Record<string, unknown> = { ownerId, deletedAt: null };
+  if (query.search) {
+    baseFilter.name = new RegExp(escapeRegExp(query.search.trim()), 'i');
+  }
+
+  const skip = (query.page - 1) * query.limit;
+
+  const [pipelines, total] = await Promise.all([
+    Pipeline.find(baseFilter)
+      .select('_id name isDefault stages createdAt updatedAt')
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(query.limit),
+    Pipeline.countDocuments(baseFilter),
+  ]);
+
+  const pipelinesWithSortedStages = pipelines.map((pipeline) => {
+    const stages = [...pipeline.stages].sort((a, b) => a.order - b.order);
+    return {
+      _id: pipeline._id,
+      name: pipeline.name,
+      isDefault: pipeline.isDefault,
+      createdAt: (pipeline as any).createdAt,
+      updatedAt: (pipeline as any).updatedAt,
+      stages,
+    };
+  });
+
+  const totalPages = Math.ceil(total / query.limit);
+
+  return {
+    pipelines: pipelinesWithSortedStages,
     pagination: {
       page: query.page,
       limit: query.limit,

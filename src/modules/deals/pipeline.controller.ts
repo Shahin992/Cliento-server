@@ -8,6 +8,7 @@ import {
   getPipelineById,
   getPipelineStages,
   listPipelines,
+  listPipelinesWithStages,
   updatePipeline,
 } from './pipeline.service';
 
@@ -63,11 +64,61 @@ const createPipelineSchema = z.object({
 });
 
 const createStageOnlySchema = createStageSchema;
+const updateStageSchema = z.object({
+  _id: objectIdSchema.optional(),
+  name: z.string().trim().min(1).max(LENGTH.stageName),
+  color: optionalNullableTrimmedString(LENGTH.stageColor),
+  order: z.coerce.number().int().min(0).optional(),
+  isDefault: z.boolean().optional(),
+});
+
 const updatePipelineSchema = z.object({
   name: z.string().trim().min(1).max(LENGTH.pipelineName).optional(),
   isDefault: z.boolean().optional(),
+  stages: z.array(updateStageSchema).min(1).max(LENGTH.stagesMax).optional(),
 }).refine((data) => Object.keys(data).length > 0, {
   message: 'At least one field is required',
+}).superRefine((data, ctx) => {
+  if (!data.stages) return;
+
+  const names = new Set<string>();
+  const orders = new Set<number>();
+  let defaultCount = 0;
+
+  data.stages.forEach((stage, index) => {
+    const normalized = stage.name.trim().toLowerCase();
+    if (names.has(normalized)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['stages', index, 'name'],
+        message: 'Stage names must be unique',
+      });
+    }
+    names.add(normalized);
+
+    if (stage.order !== undefined) {
+      if (orders.has(stage.order)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['stages', index, 'order'],
+          message: 'Stage order must be unique',
+        });
+      }
+      orders.add(stage.order);
+    }
+
+    if (stage.isDefault === true) {
+      defaultCount += 1;
+    }
+  });
+
+  if (defaultCount > 1) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['stages'],
+      message: 'Only one stage can be default',
+    });
+  }
 });
 const deletePipelineSchema = z.object({
   dealAction: z.enum(['move', 'delete']),
@@ -262,6 +313,48 @@ export const listPipelinesHandler = async (req: Request, res: Response) => {
   }
 };
 
+export const listPipelinesWithStagesHandler = async (req: Request, res: Response) => {
+  try {
+    const userId = getUserIdFromReq(req);
+    if (!userId) {
+      return sendError(res, {
+        success: false,
+        statusCode: 401,
+        message: 'You have no access to this route',
+      });
+    }
+
+    const query = listPipelinesQuerySchema.parse({
+      page: getQueryValue(req.query.page),
+      limit: getQueryValue(req.query.limit),
+      search: getQueryValue(req.query.search) ?? getQueryValue(req.query.q),
+    });
+
+    const pipelines = await listPipelinesWithStages(userId, query);
+    return sendResponse(res, {
+      success: true,
+      statusCode: 200,
+      message: 'Pipelines with stages fetched successfully',
+      data: pipelines,
+    });
+  } catch (error) {
+    if (error instanceof ZodError) {
+      return sendError(res, {
+        success: false,
+        statusCode: 400,
+        message: 'Validation failed',
+        details: error.errors.map((e) => `${e.path.join('.')}: ${e.message}`).join(', '),
+      });
+    }
+    return sendError(res, {
+      success: false,
+      statusCode: 500,
+      message: 'Failed to fetch pipelines with stages',
+      details: (error as Error).message,
+    });
+  }
+};
+
 export const getPipelineByIdHandler = async (req: Request, res: Response) => {
   try {
     const userId = getUserIdFromReq(req);
@@ -373,6 +466,7 @@ export const updatePipelineHandler = async (req: Request, res: Response) => {
       pipelineId,
       name: parsed.name,
       isDefault: parsed.isDefault,
+      stages: parsed.stages,
       updatedBy: userId,
     });
 
@@ -390,12 +484,36 @@ export const updatePipelineHandler = async (req: Request, res: Response) => {
         message: 'Pipeline name already exists',
       });
     }
+    if (result.status === 'invalid_stage_id') {
+      return sendError(res, {
+        success: false,
+        statusCode: 400,
+        message: 'One or more stage ids are invalid for this pipeline',
+      });
+    }
+    if (result.status === 'duplicate_stage_order') {
+      return sendError(res, {
+        success: false,
+        statusCode: 409,
+        message: 'Stage order already exists in this pipeline',
+      });
+    }
+    if (result.status === 'invalid_stages') {
+      return sendError(res, {
+        success: false,
+        statusCode: 400,
+        message: 'Invalid stages payload',
+      });
+    }
 
     return sendResponse(res, {
       success: true,
       statusCode: 200,
       message: 'Pipeline updated successfully',
-      data: result.pipeline,
+      data: {
+        pipeline: result.pipeline,
+        movedDealsCount: result.movedDealsCount ?? 0,
+      },
     });
   } catch (error) {
     if (error instanceof ZodError) {
