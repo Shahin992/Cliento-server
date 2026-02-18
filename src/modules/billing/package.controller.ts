@@ -65,11 +65,11 @@ const createPackageSchema = z.object({
   isDefault: z.boolean().optional(),
 }).superRefine((data, ctx) => {
   if (data.hasTrial) {
-    if (!data.trialPeriodDays || data.trialPeriodDays <= 0) {
+    if (data.trialPeriodDays !== undefined && data.trialPeriodDays <= 0) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['trialPeriodDays'],
-        message: 'trialPeriodDays must be greater than 0 when hasTrial is true.',
+        message: 'trialPeriodDays must be greater than 0 when provided and hasTrial is true.',
       });
     }
   } else if (data.trialPeriodDays && data.trialPeriodDays > 0) {

@@ -58,6 +58,14 @@ const updateProfileSchema = z.object({
 
 export const signup = async (req: Request, res: Response, next:NextFunction) => {
   try {
+    if (typeof req.body?.role === 'string' && req.body.role.trim().toUpperCase() === 'SUPER_ADMIN') {
+      return sendError(res, {
+        success: false,
+        statusCode: 400,
+        message: 'SUPER_ADMIN account cannot be created via signup',
+      });
+    }
+
     const parsed = userSchema.parse(req.body);
     const tempPassword = String(randomInt(100000, 1000000));
     const user =  await registerUser({ ...parsed, password: tempPassword });
