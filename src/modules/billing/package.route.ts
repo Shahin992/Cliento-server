@@ -4,6 +4,7 @@ import {
   createBillingPackageHandler,
   deactivateBillingPackageHandler,
   deleteBillingPackageHandler,
+  getStripeCheckoutSessionSummaryHandler,
   listPublicBillingPackagesHandler,
   updateBillingPackageHandler,
 } from './package.controller';
@@ -22,6 +23,30 @@ const router = Router();
  *         description: Billing packages fetched successfully
  */
 router.get('/public', listPublicBillingPackagesHandler);
+
+/**
+ * @swagger
+ * /api/packages/checkout-session/{sessionId}:
+ *   get:
+ *     tags:
+ *       - Packages
+ *     summary: Fetch Stripe checkout session summary by session id (public)
+ *     parameters:
+ *       - in: path
+ *         name: sessionId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Stripe Checkout Session id (cs_test_... or cs_live_...)
+ *     responses:
+ *       200:
+ *         description: Stripe checkout session fetched successfully
+ *       400:
+ *         description: Invalid session id
+ *       502:
+ *         description: Stripe request failed
+ */
+router.get('/checkout-session/:sessionId', getStripeCheckoutSessionSummaryHandler);
 
 /**
  * @swagger

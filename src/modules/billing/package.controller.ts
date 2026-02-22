@@ -5,6 +5,7 @@ import {
   createBillingPackage,
   deactivateBillingPackage,
   deleteBillingPackage,
+  getStripeCheckoutSessionSummary,
   listPublicBillingPackages,
   updateBillingPackage,
 } from './package.service';
@@ -41,6 +42,10 @@ const priceSchema = z.object({
   currency: z.enum(['usd', 'eur', 'gbp', 'bdt']),
 });
 const objectIdSchema = z.string().regex(/^[a-f\d]{24}$/i, 'Invalid id');
+const stripeCheckoutSessionIdSchema = z
+  .string()
+  .trim()
+  .regex(/^cs_(test|live)_[A-Za-z0-9]+$/, 'Invalid Stripe checkout session id');
 
 const createPackageSchema = z.object({
   code: z
@@ -319,6 +324,38 @@ export const listPublicBillingPackagesHandler = async (_req: Request, res: Respo
       success: false,
       statusCode: 500,
       message: 'Failed to fetch billing packages',
+      details: (error as Error).message,
+    });
+  }
+};
+
+export const getStripeCheckoutSessionSummaryHandler = async (req: Request, res: Response) => {
+  try {
+    const sessionId = stripeCheckoutSessionIdSchema.parse(req.params.sessionId);
+    const result = await getStripeCheckoutSessionSummary(sessionId);
+    const serviceError = handleServiceError(res, result);
+    if (serviceError) return serviceError;
+
+    return sendResponse(res, {
+      success: true,
+      statusCode: 200,
+      message: 'Stripe checkout session fetched successfully',
+      data: result.session,
+    });
+  } catch (error) {
+    if (error instanceof ZodError) {
+      return sendError(res, {
+        success: false,
+        statusCode: 400,
+        message: 'Validation failed',
+        details: error.errors.map((e) => `${e.path.join('.')}: ${e.message}`).join(', '),
+      });
+    }
+
+    return sendError(res, {
+      success: false,
+      statusCode: 500,
+      message: 'Failed to fetch Stripe checkout session',
       details: (error as Error).message,
     });
   }

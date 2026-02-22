@@ -31,6 +31,16 @@ const getStripeConfig = () => {
   return { secretKey, baseUrl };
 };
 
+const getStripePaymentSuccessRedirectUrl = () => {
+  const configured = process.env.STRIPE_PAYMENT_SUCCESS_REDIRECT_URL?.trim();
+  if (!configured) return null;
+
+  if (configured.includes('{CHECKOUT_SESSION_ID}')) return configured;
+
+  const separator = configured.includes('?') ? '&' : '?';
+  return `${configured}${separator}session_id={CHECKOUT_SESSION_ID}`;
+};
+
 const convertAmountToMinorUnit = (amount: number, currency: BillingCurrency) => {
   const twoDecimalCurrencies = new Set<BillingCurrency>(['usd', 'eur', 'gbp', 'bdt']);
   if (!twoDecimalCurrencies.has(currency)) return Math.round(amount);
@@ -46,6 +56,26 @@ const postToStripe = async (path: string, body: URLSearchParams) => {
       'Content-Type': 'application/x-www-form-urlencoded',
     },
     body: body.toString(),
+  });
+
+  const json = await response.json();
+  if (!response.ok) {
+    const message = json?.error?.message || 'Stripe API request failed.';
+    throw new StripeIntegrationError('stripe_api_error', message);
+  }
+
+  return json as Record<string, any>;
+};
+
+const getFromStripe = async (path: string, query?: URLSearchParams) => {
+  const { secretKey, baseUrl } = getStripeConfig();
+  const suffix = query ? `?${query.toString()}` : '';
+
+  const response = await fetch(`${baseUrl}${path}${suffix}`, {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${secretKey}`,
+    },
   });
 
   const json = await response.json();
@@ -101,14 +131,26 @@ const deactivateStripeProduct = async (productId: string) => {
 
 const createStripePaymentLink = async (
   stripePriceId: string,
-  hasTrial: boolean,
-  trialPeriodDays: number
+  payload: StripeCreateCatalogInput
 ) => {
   const body = new URLSearchParams();
   body.append('line_items[0][price]', stripePriceId);
   body.append('line_items[0][quantity]', '1');
-  if (hasTrial && trialPeriodDays > 0) {
-    body.append('subscription_data[trial_period_days]', String(trialPeriodDays));
+  body.append('metadata[package_code]', payload.code.toLowerCase());
+  body.append('metadata[billing_cycle]', payload.billingCycle);
+  body.append('metadata[currency]', payload.price.currency);
+  body.append('metadata[amount]', String(payload.price.amount));
+  body.append('subscription_data[metadata][package_code]', payload.code.toLowerCase());
+  body.append('subscription_data[metadata][billing_cycle]', payload.billingCycle);
+
+  if (payload.hasTrial && payload.trialPeriodDays > 0) {
+    body.append('subscription_data[trial_period_days]', String(payload.trialPeriodDays));
+  }
+
+  const successRedirectUrl = getStripePaymentSuccessRedirectUrl();
+  if (successRedirectUrl) {
+    body.append('after_completion[type]', 'redirect');
+    body.append('after_completion[redirect][url]', successRedirectUrl);
   }
 
   const paymentLink = await postToStripe('/v1/payment_links', body);
@@ -138,11 +180,7 @@ export const createStripeCatalog = async (payload: StripeCreateCatalogInput) => 
       payload.billingCycle === 'monthly' ? 'month' : 'year'
     );
 
-    const paymentLink = await createStripePaymentLink(
-      stripePriceId,
-      payload.hasTrial,
-      payload.trialPeriodDays
-    );
+    const paymentLink = await createStripePaymentLink(stripePriceId, payload);
     stripePaymentLinkId = paymentLink.id;
     buyLinkUrl = paymentLink.url;
 
@@ -169,5 +207,13 @@ export const rollbackStripeCatalog = async (
 };
 
 export const deactivateStripeCatalog = rollbackStripeCatalog;
+
+export const retrieveStripeCheckoutSession = async (sessionId: string) => {
+  const query = new URLSearchParams();
+  query.append('expand[]', 'subscription');
+  query.append('expand[]', 'line_items.data.price.product');
+
+  return getFromStripe(`/v1/checkout/sessions/${sessionId}`, query);
+};
 
 export { StripeIntegrationError };

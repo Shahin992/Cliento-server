@@ -4,6 +4,7 @@ import {
   createStripeCatalog,
   deactivateStripeCatalog,
   deactivateStripePaymentLink,
+  retrieveStripeCheckoutSession,
   rollbackStripeCatalog,
   StripeIntegrationError,
 } from './stripe.service';
@@ -242,4 +243,53 @@ export const listPublicBillingPackages = async () => {
     .lean();
 
   return { packages };
+};
+
+export const getStripeCheckoutSessionSummary = async (sessionId: string) => {
+  try {
+    const session = await retrieveStripeCheckoutSession(sessionId);
+
+    const firstLineItem = Array.isArray(session.line_items?.data)
+      ? session.line_items.data[0]
+      : null;
+    const price = firstLineItem?.price ?? null;
+    const product = price?.product ?? null;
+
+    return {
+      status: 'ok' as const,
+      session: {
+        id: String(session.id),
+        status: session.status ?? null,
+        paymentStatus: session.payment_status ?? null,
+        customerEmail: session.customer_details?.email ?? session.customer_email ?? null,
+        metadata: session.metadata ?? {},
+        subscriptionId:
+          typeof session.subscription === 'string'
+            ? session.subscription
+            : session.subscription?.id ?? null,
+        subscriptionMetadata:
+          typeof session.subscription === 'object' && session.subscription
+            ? session.subscription.metadata ?? {}
+            : {},
+        lineItem: price
+          ? {
+              currency: price.currency ?? null,
+              unitAmount: price.unit_amount ?? null,
+              recurringInterval: price.recurring?.interval ?? null,
+              productId: typeof product === 'string' ? product : product?.id ?? null,
+              productName: typeof product === 'object' ? product?.name ?? null : null,
+            }
+          : null,
+      },
+    };
+  } catch (error) {
+    if (error instanceof StripeIntegrationError) {
+      if (error.status === 'missing_secret_key') {
+        return { status: 'stripe_not_configured' as const, message: error.message };
+      }
+      return { status: 'stripe_error' as const, message: error.message };
+    }
+
+    throw error;
+  }
 };
