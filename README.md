@@ -75,7 +75,10 @@ http://localhost:8000/api-docs
 - `/api/contacts`
 - `/api/pipelines`
 - `/api/deals`
+- `/api/tasks`
 - `/api/mail/google`
+- `/api/packages`
+- `/api/subscriptions`
 
 ## To Be Continued
 

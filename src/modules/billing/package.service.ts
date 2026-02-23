@@ -254,6 +254,13 @@ export const getStripeCheckoutSessionSummary = async (sessionId: string) => {
       : null;
     const price = firstLineItem?.price ?? null;
     const product = price?.product ?? null;
+    const subscription =
+      typeof session.subscription === 'object' && session.subscription
+        ? session.subscription
+        : null;
+
+    const toDateOrNull = (unixSeconds?: number | null) =>
+      typeof unixSeconds === 'number' ? new Date(unixSeconds * 1000) : null;
 
     return {
       status: 'ok' as const,
@@ -261,6 +268,10 @@ export const getStripeCheckoutSessionSummary = async (sessionId: string) => {
         id: String(session.id),
         status: session.status ?? null,
         paymentStatus: session.payment_status ?? null,
+        customerId:
+          typeof session.customer === 'string'
+            ? session.customer
+            : session.customer?.id ?? null,
         customerEmail: session.customer_details?.email ?? session.customer_email ?? null,
         metadata: session.metadata ?? {},
         subscriptionId:
@@ -268,13 +279,19 @@ export const getStripeCheckoutSessionSummary = async (sessionId: string) => {
             ? session.subscription
             : session.subscription?.id ?? null,
         subscriptionMetadata:
-          typeof session.subscription === 'object' && session.subscription
-            ? session.subscription.metadata ?? {}
-            : {},
+          subscription ? subscription.metadata ?? {} : {},
+        subscriptionStatus: subscription?.status ?? null,
+        subscriptionCurrentPeriodStart: toDateOrNull(subscription?.current_period_start),
+        subscriptionCurrentPeriodEnd: toDateOrNull(subscription?.current_period_end),
+        subscriptionCancelAtPeriodEnd: Boolean(subscription?.cancel_at_period_end ?? false),
+        subscriptionCanceledAt: toDateOrNull(subscription?.canceled_at),
+        subscriptionTrialStart: toDateOrNull(subscription?.trial_start),
+        subscriptionTrialEnd: toDateOrNull(subscription?.trial_end),
         lineItem: price
           ? {
               currency: price.currency ?? null,
               unitAmount: price.unit_amount ?? null,
+              priceId: typeof price.id === 'string' ? price.id : null,
               recurringInterval: price.recurring?.interval ?? null,
               productId: typeof product === 'string' ? product : product?.id ?? null,
               productName: typeof product === 'object' ? product?.name ?? null : null,
