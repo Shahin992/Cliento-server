@@ -200,6 +200,13 @@ export const syncSubscriptionFromCheckoutSessionHandler = async (req: Request, r
         message: 'Session has no price id',
       });
     }
+    if (result.status === 'checkout_user_mismatch') {
+      return sendError(res, {
+        success: false,
+        statusCode: 403,
+        message: 'This checkout session does not belong to the authenticated user',
+      });
+    }
     if (result.status === 'package_not_found') {
       return sendError(res, {
         success: false,

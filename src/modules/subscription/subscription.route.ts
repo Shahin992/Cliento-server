@@ -90,7 +90,7 @@ router.get('/me/history', authenticate, authorize(SUBSCRIPTION_ACCESS_ROLES), li
  *         description: Stripe request failed
  */
 router.post('/sync/checkout-session', authenticate, authorize(SUBSCRIPTION_ACCESS_ROLES), syncSubscriptionFromCheckoutSessionHandler);
-
+                                                      
 /**
  * @swagger
  * /api/subscriptions/{subscriptionId}:

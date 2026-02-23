@@ -12,6 +12,19 @@ type StripeCreateCatalogInput = {
   price: IPackagePriceInput;
 };
 
+type StripeCreateCheckoutSessionInput = {
+  stripePriceId: string;
+  packageId: string;
+  packageCode: string;
+  billingCycle: BillingCycle;
+  currency: BillingCurrency;
+  amount: number;
+  hasTrial: boolean;
+  trialPeriodDays: number;
+  userId: string;
+  userEmail?: string | null;
+};
+
 class StripeIntegrationError extends Error {
   status: 'missing_secret_key' | 'stripe_api_error';
 
@@ -39,6 +52,14 @@ const getStripePaymentSuccessRedirectUrl = () => {
 
   const separator = configured.includes('?') ? '&' : '?';
   return `${configured}${separator}session_id={CHECKOUT_SESSION_ID}`;
+};
+
+const getStripePaymentCancelRedirectUrl = () => {
+  const configured = process.env.STRIPE_PAYMENT_CANCEL_REDIRECT_URL?.trim();
+  if (configured) return configured;
+
+  const successUrl = process.env.STRIPE_PAYMENT_SUCCESS_REDIRECT_URL?.trim();
+  return successUrl || 'http://localhost:5173/payment/cancel';
 };
 
 const convertAmountToMinorUnit = (amount: number, currency: BillingCurrency) => {
@@ -160,6 +181,49 @@ const createStripePaymentLink = async (
   };
 };
 
+export const createStripeCheckoutSession = async (payload: StripeCreateCheckoutSessionInput) => {
+  const body = new URLSearchParams();
+  body.append('mode', 'subscription');
+  body.append('line_items[0][price]', payload.stripePriceId);
+  body.append('line_items[0][quantity]', '1');
+  body.append('metadata[package_id]', payload.packageId);
+  body.append('metadata[package_code]', payload.packageCode.toLowerCase());
+  body.append('metadata[user_id]', payload.userId);
+  body.append('metadata[billing_cycle]', payload.billingCycle);
+  body.append('metadata[currency]', payload.currency);
+  body.append('metadata[amount]', String(payload.amount));
+  body.append('subscription_data[metadata][package_id]', payload.packageId);
+  body.append('subscription_data[metadata][package_code]', payload.packageCode.toLowerCase());
+  body.append('subscription_data[metadata][user_id]', payload.userId);
+  body.append('subscription_data[metadata][billing_cycle]', payload.billingCycle);
+  body.append('subscription_data[metadata][currency]', payload.currency);
+  body.append('subscription_data[metadata][amount]', String(payload.amount));
+  body.append('allow_promotion_codes', 'true');
+
+  if (payload.userEmail) {
+    body.append('customer_email', payload.userEmail);
+  }
+
+  if (payload.hasTrial && payload.trialPeriodDays > 0) {
+    body.append('subscription_data[trial_period_days]', String(payload.trialPeriodDays));
+  }
+
+  const successRedirectUrl = getStripePaymentSuccessRedirectUrl();
+  if (successRedirectUrl) {
+    body.append('success_url', successRedirectUrl);
+  } else {
+    body.append('success_url', 'http://localhost:5173/payment/success?session_id={CHECKOUT_SESSION_ID}');
+  }
+
+  body.append('cancel_url', getStripePaymentCancelRedirectUrl());
+
+  const session = await postToStripe('/v1/checkout/sessions', body);
+  return {
+    id: String(session.id),
+    url: String(session.url),
+  };
+};
+
 export const deactivateStripePaymentLink = async (paymentLinkId: string) => {
   const body = new URLSearchParams();
   body.append('active', 'false');
@@ -211,9 +275,33 @@ export const deactivateStripeCatalog = rollbackStripeCatalog;
 export const retrieveStripeCheckoutSession = async (sessionId: string) => {
   const query = new URLSearchParams();
   query.append('expand[]', 'subscription');
+  query.append('expand[]', 'subscription.items');
+  query.append('expand[]', 'subscription.items.data');
+  query.append('expand[]', 'subscription.default_payment_method');
+  query.append('expand[]', 'subscription.latest_invoice');
+  query.append('expand[]', 'subscription.latest_invoice.lines');
+  query.append('expand[]', 'subscription.latest_invoice.lines.data');
+  query.append('expand[]', 'subscription.latest_invoice.payment_intent');
+  query.append('expand[]', 'subscription.latest_invoice.payment_intent.payment_method');
+  query.append('expand[]', 'payment_intent');
+  query.append('expand[]', 'payment_intent.payment_method');
   query.append('expand[]', 'line_items.data.price.product');
 
   return getFromStripe(`/v1/checkout/sessions/${sessionId}`, query);
+};
+
+export const retrieveStripeSubscription = async (subscriptionId: string) => {
+  const query = new URLSearchParams();
+  query.append('expand[]', 'items');
+  query.append('expand[]', 'items.data');
+  query.append('expand[]', 'default_payment_method');
+  query.append('expand[]', 'latest_invoice');
+  query.append('expand[]', 'latest_invoice.lines');
+  query.append('expand[]', 'latest_invoice.lines.data');
+  query.append('expand[]', 'latest_invoice.payment_intent');
+  query.append('expand[]', 'latest_invoice.payment_intent.payment_method');
+
+  return getFromStripe(`/v1/subscriptions/${subscriptionId}`, query);
 };
 
 export { StripeIntegrationError };

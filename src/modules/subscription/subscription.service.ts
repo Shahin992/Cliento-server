@@ -3,6 +3,7 @@ import { ListSubscriptionsQuery, SubscriptionStatus } from './subscription.inter
 import { BillingPackage } from '../billing/package.model';
 import { getStripeCheckoutSessionSummary } from '../billing/package.service';
 import { User } from '../users/user.model';
+import { sendSubscriptionInvoiceEmail } from '../../config/email';
 
 const toMajorAmount = (minorAmount: number, currency: string) => {
   const twoDecimalCurrencies = new Set(['usd', 'eur', 'gbp', 'bdt']);
@@ -15,7 +16,7 @@ export const syncSubscriptionFromCheckoutSession = async (userId: string, sessio
   if (stripeResult.status !== 'ok') {
     return stripeResult;
   }
-
+  
   const session = stripeResult.session;
   const paymentStatus = String(session.paymentStatus || '').toLowerCase();
   const checkoutStatus = String(session.status || '').toLowerCase();
@@ -36,6 +37,12 @@ export const syncSubscriptionFromCheckoutSession = async (userId: string, sessio
   }
   if (!session.lineItem?.priceId) {
     return { status: 'price_id_missing' as const };
+  }
+  const sessionUserId = String(
+    session.subscriptionMetadata?.user_id || session.metadata?.user_id || ''
+  ).trim();
+  if (sessionUserId && sessionUserId !== userId) {
+    return { status: 'checkout_user_mismatch' as const };
   }
 
   const packageCodeFromMeta = String(
@@ -79,6 +86,20 @@ export const syncSubscriptionFromCheckoutSession = async (userId: string, sessio
   const trialEnd = session.subscriptionTrialEnd || null;
   const canceledAt = session.subscriptionCanceledAt || null;
   const cancelAtPeriodEnd = Boolean(session.subscriptionCancelAtPeriodEnd);
+  const card = session.card &&
+    typeof session.card.paymentMethodId === 'string' &&
+    typeof session.card.brand === 'string' &&
+    typeof session.card.last4 === 'string' &&
+    typeof session.card.expMonth === 'number' &&
+    typeof session.card.expYear === 'number'
+    ? {
+        paymentMethodId: session.card.paymentMethodId,
+        brand: session.card.brand,
+        last4: session.card.last4,
+        expMonth: session.card.expMonth,
+        expYear: session.card.expYear,
+      }
+    : null;
 
   await BillingSubscription.updateMany(
     { userId, isCurrent: true, stripeSubscriptionId: { $ne: session.subscriptionId } },
@@ -103,11 +124,10 @@ export const syncSubscriptionFromCheckoutSession = async (userId: string, sessio
         canceledAt,
         trialStart,
         trialEnd,
+        card,
+        latestInvoiceId: session.latestInvoiceId || null,
         isCurrent: true,
         latestEventId: session.id,
-      },
-      $setOnInsert: {
-        cancelAtPeriodEnd,
       },
     },
     { new: true, upsert: true }
@@ -120,6 +140,30 @@ export const syncSubscriptionFromCheckoutSession = async (userId: string, sessio
     planType: 'paid',
     accessExpiresAt: currentPeriodEnd,
   });
+
+  const userProfile = await User.findById(userId).select('email fullName');
+  const receiverEmail = (session.customerEmail || userProfile?.email || '').trim();
+  if (receiverEmail) {
+    try {
+      await sendSubscriptionInvoiceEmail(receiverEmail, userProfile?.fullName || '', {
+        invoiceId: session.invoice?.id || session.latestInvoiceId || null,
+        invoiceNumber: session.invoice?.number || null,
+        status: session.invoice?.status || null,
+        amountPaid:
+          typeof session.invoice?.amountPaid === 'number'
+            ? session.invoice.amountPaid
+            : typeof session.lineItem?.unitAmount === 'number'
+              ? session.lineItem.unitAmount
+              : null,
+        currency: session.invoice?.currency || session.lineItem?.currency || null,
+        hostedInvoiceUrl: session.invoice?.hostedInvoiceUrl || null,
+        invoicePdfUrl: session.invoice?.invoicePdfUrl || null,
+        createdAt: session.invoice?.createdAt || null,
+      });
+    } catch (error) {
+      console.error(`====> Failed to send subscription invoice email: ${(error as Error).message}`);
+    }
+  }
 
   return { status: 'ok' as const, subscription };
 };

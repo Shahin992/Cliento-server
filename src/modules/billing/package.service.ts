@@ -2,9 +2,11 @@ import { CreatePackageInput, UpdatePackageInput } from './package.interface';
 import { BillingPackage } from './package.model';
 import {
   createStripeCatalog,
+  createStripeCheckoutSession,
   deactivateStripeCatalog,
   deactivateStripePaymentLink,
   retrieveStripeCheckoutSession,
+  retrieveStripeSubscription,
   rollbackStripeCatalog,
   StripeIntegrationError,
 } from './stripe.service';
@@ -245,6 +247,67 @@ export const listPublicBillingPackages = async () => {
   return { packages };
 };
 
+type CreateCheckoutSessionInput = {
+  packageId: string;
+  userId: string;
+  userEmail?: string | null;
+};
+
+export const createCheckoutSessionForPackage = async (payload: CreateCheckoutSessionInput) => {
+  const packageDoc = await BillingPackage.findById(payload.packageId).select({
+    _id: 1,
+    code: 1,
+    billingCycle: 1,
+    hasTrial: 1,
+    trialPeriodDays: 1,
+    isActive: 1,
+    price: 1,
+  });
+
+  if (!packageDoc) {
+    return { status: 'package_not_found' as const };
+  }
+
+  if (!packageDoc.isActive) {
+    return { status: 'package_inactive' as const };
+  }
+
+  if (!packageDoc.price?.stripePriceId) {
+    return { status: 'package_price_missing' as const };
+  }
+
+  try {
+    const session = await createStripeCheckoutSession({
+      stripePriceId: packageDoc.price.stripePriceId,
+      packageId: String(packageDoc._id),
+      packageCode: packageDoc.code,
+      billingCycle: packageDoc.billingCycle,
+      currency: packageDoc.price.currency,
+      amount: packageDoc.price.amount,
+      hasTrial: packageDoc.hasTrial,
+      trialPeriodDays: packageDoc.trialPeriodDays,
+      userId: payload.userId,
+      userEmail: payload.userEmail ?? null,
+    });
+
+    return {
+      status: 'ok' as const,
+      checkout: {
+        sessionId: session.id,
+        checkoutUrl: session.url,
+      },
+    };
+  } catch (error) {
+    if (error instanceof StripeIntegrationError) {
+      if (error.status === 'missing_secret_key') {
+        return { status: 'stripe_not_configured' as const, message: error.message };
+      }
+      return { status: 'stripe_error' as const, message: error.message };
+    }
+    throw error;
+  }
+};
+
 export const getStripeCheckoutSessionSummary = async (sessionId: string) => {
   try {
     const session = await retrieveStripeCheckoutSession(sessionId);
@@ -254,13 +317,100 @@ export const getStripeCheckoutSessionSummary = async (sessionId: string) => {
       : null;
     const price = firstLineItem?.price ?? null;
     const product = price?.product ?? null;
-    const subscription =
+    let subscription =
       typeof session.subscription === 'object' && session.subscription
         ? session.subscription
         : null;
+    const fallbackSubscriptionId =
+      typeof session.subscription === 'string'
+        ? session.subscription
+        : typeof session.subscription?.id === 'string'
+          ? session.subscription.id
+          : null;
+    if (
+      (!subscription || subscription.current_period_end == null || subscription.current_period_start == null) &&
+      fallbackSubscriptionId
+    ) {
+      try {
+        const hydrated = await retrieveStripeSubscription(fallbackSubscriptionId);
+        if (hydrated && typeof hydrated === 'object') {
+          subscription = hydrated;
+        }
+      } catch {
+        // Keep session-level subscription if direct hydration fails.
+      }
+    }
+    const latestInvoice =
+      typeof subscription?.latest_invoice === 'object' && subscription.latest_invoice
+        ? subscription.latest_invoice
+        : null;
+    const sessionPaymentIntent =
+      typeof session.payment_intent === 'object' && session.payment_intent
+        ? session.payment_intent
+        : null;
+    const invoicePaymentIntent =
+      typeof latestInvoice?.payment_intent === 'object' && latestInvoice.payment_intent
+        ? latestInvoice.payment_intent
+        : null;
 
-    const toDateOrNull = (unixSeconds?: number | null) =>
-      typeof unixSeconds === 'number' ? new Date(unixSeconds * 1000) : null;
+    const getPaymentMethodObject = () => {
+      const fromSubscriptionDefault =
+        typeof subscription?.default_payment_method === 'object' && subscription.default_payment_method
+          ? subscription.default_payment_method
+          : null;
+      if (fromSubscriptionDefault) return fromSubscriptionDefault;
+
+      const fromInvoicePaymentIntent =
+        typeof invoicePaymentIntent?.payment_method === 'object' && invoicePaymentIntent.payment_method
+          ? invoicePaymentIntent.payment_method
+          : null;
+      if (fromInvoicePaymentIntent) return fromInvoicePaymentIntent;
+
+      const fromSessionPaymentIntent =
+        typeof sessionPaymentIntent?.payment_method === 'object' && sessionPaymentIntent.payment_method
+          ? sessionPaymentIntent.payment_method
+          : null;
+      if (fromSessionPaymentIntent) return fromSessionPaymentIntent;
+
+      return null;
+    };
+
+    const paymentMethod = getPaymentMethodObject();
+    const card = paymentMethod?.card
+      ? {
+          paymentMethodId: typeof paymentMethod.id === 'string' ? paymentMethod.id : null,
+          brand: paymentMethod.card?.brand ?? null,
+          last4: paymentMethod.card?.last4 ?? null,
+          expMonth: paymentMethod.card?.exp_month ?? null,
+          expYear: paymentMethod.card?.exp_year ?? null,
+        }
+      : null;
+
+    const toDateOrNull = (unixSeconds?: number | string | null) => {
+      if (typeof unixSeconds === 'number') return new Date(unixSeconds * 1000);
+      if (typeof unixSeconds === 'string' && /^\d+$/.test(unixSeconds)) {
+        return new Date(Number(unixSeconds) * 1000);
+      }
+      return null;
+    };
+
+    const subscriptionFirstItem = Array.isArray(subscription?.items?.data)
+      ? subscription.items.data[0]
+      : null;
+    const invoiceFirstLine = Array.isArray(latestInvoice?.lines?.data)
+      ? latestInvoice.lines.data[0]
+      : null;
+
+    const resolvedPeriodStartRaw =
+      subscription?.current_period_start ??
+      subscriptionFirstItem?.current_period_start ??
+      invoiceFirstLine?.period?.start ??
+      null;
+    const resolvedPeriodEndRaw =
+      subscription?.current_period_end ??
+      subscriptionFirstItem?.current_period_end ??
+      invoiceFirstLine?.period?.end ??
+      null;
 
     return {
       status: 'ok' as const,
@@ -281,12 +431,42 @@ export const getStripeCheckoutSessionSummary = async (sessionId: string) => {
         subscriptionMetadata:
           subscription ? subscription.metadata ?? {} : {},
         subscriptionStatus: subscription?.status ?? null,
-        subscriptionCurrentPeriodStart: toDateOrNull(subscription?.current_period_start),
-        subscriptionCurrentPeriodEnd: toDateOrNull(subscription?.current_period_end),
+        subscriptionCurrentPeriodStart: toDateOrNull(resolvedPeriodStartRaw),
+        subscriptionCurrentPeriodEnd: toDateOrNull(resolvedPeriodEndRaw),
         subscriptionCancelAtPeriodEnd: Boolean(subscription?.cancel_at_period_end ?? false),
         subscriptionCanceledAt: toDateOrNull(subscription?.canceled_at),
         subscriptionTrialStart: toDateOrNull(subscription?.trial_start),
         subscriptionTrialEnd: toDateOrNull(subscription?.trial_end),
+        latestInvoiceId:
+          typeof latestInvoice?.id === 'string'
+            ? latestInvoice.id
+            : typeof subscription?.latest_invoice === 'string'
+              ? subscription.latest_invoice
+              : null,
+        invoice: latestInvoice
+          ? {
+              id: typeof latestInvoice.id === 'string' ? latestInvoice.id : null,
+              number: typeof latestInvoice.number === 'string' ? latestInvoice.number : null,
+              status: typeof latestInvoice.status === 'string' ? latestInvoice.status : null,
+              currency: typeof latestInvoice.currency === 'string' ? latestInvoice.currency : null,
+              amountPaid:
+                typeof latestInvoice.amount_paid === 'number'
+                  ? latestInvoice.amount_paid
+                  : typeof latestInvoice.total === 'number'
+                    ? latestInvoice.total
+                    : null,
+              hostedInvoiceUrl:
+                typeof latestInvoice.hosted_invoice_url === 'string'
+                  ? latestInvoice.hosted_invoice_url
+                  : null,
+              invoicePdfUrl:
+                typeof latestInvoice.invoice_pdf === 'string'
+                  ? latestInvoice.invoice_pdf
+                  : null,
+              createdAt: toDateOrNull(latestInvoice.created),
+            }
+          : null,
+        card,
         lineItem: price
           ? {
               currency: price.currency ?? null,

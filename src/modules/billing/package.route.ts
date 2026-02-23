@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { authenticate, authorize } from '../../middleware/authMiddlewares';
 import {
+  createCheckoutSessionHandler,
   createBillingPackageHandler,
   deactivateBillingPackageHandler,
   deleteBillingPackageHandler,
@@ -10,6 +11,7 @@ import {
 } from './package.controller';
 
 const router = Router();
+const PACKAGE_ACCESS_ROLES = ['SUPER_ADMIN', 'OWNER', 'ADMIN', 'MEMBER'];
 
 /**
  * @swagger
@@ -47,6 +49,40 @@ router.get('/public', listPublicBillingPackagesHandler);
  *         description: Stripe request failed
  */
 router.get('/checkout-session/:sessionId', getStripeCheckoutSessionSummaryHandler);
+
+/**
+ * @swagger
+ * /api/packages/checkout-session:
+ *   post:
+ *     tags:
+ *       - Packages
+ *     summary: Create Stripe Checkout Session for selected package (authenticated)
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - packageId
+ *             properties:
+ *               packageId:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Stripe checkout session created successfully
+ *       400:
+ *         description: Validation failed or package inactive
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Package not found
+ *       502:
+ *         description: Stripe request failed
+ */
+router.post('/checkout-session', authenticate, authorize(PACKAGE_ACCESS_ROLES), createCheckoutSessionHandler);
 
 /**
  * @swagger

@@ -3,6 +3,7 @@ import { z, ZodError } from 'zod';
 import { sendError, sendResponse } from '../../../Utils/response';
 import {
   createBillingPackage,
+  createCheckoutSessionForPackage,
   deactivateBillingPackage,
   deleteBillingPackage,
   getStripeCheckoutSessionSummary,
@@ -46,6 +47,9 @@ const stripeCheckoutSessionIdSchema = z
   .string()
   .trim()
   .regex(/^cs_(test|live)_[A-Za-z0-9]+$/, 'Invalid Stripe checkout session id');
+const createCheckoutSessionBodySchema = z.object({
+  packageId: objectIdSchema,
+});
 
 const createPackageSchema = z.object({
   code: z
@@ -118,6 +122,20 @@ const handleServiceError = (res: Response, result: { status: string; message?: s
       statusCode: 502,
       message: 'Stripe request failed',
       details: result.message,
+    });
+  }
+  if (result.status === 'package_inactive') {
+    return sendError(res, {
+      success: false,
+      statusCode: 400,
+      message: 'Package is inactive',
+    });
+  }
+  if (result.status === 'package_price_missing') {
+    return sendError(res, {
+      success: false,
+      statusCode: 500,
+      message: 'Package Stripe price is missing',
     });
   }
   return null;
@@ -356,6 +374,52 @@ export const getStripeCheckoutSessionSummaryHandler = async (req: Request, res: 
       success: false,
       statusCode: 500,
       message: 'Failed to fetch Stripe checkout session',
+      details: (error as Error).message,
+    });
+  }
+};
+
+export const  createCheckoutSessionHandler = async (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user as { id?: string; email?: string } | undefined;
+    const userId = user?.id;
+    if (!userId) {
+      return sendError(res, {
+        success: false,
+        statusCode: 401,
+        message: 'You have no access to this route',
+      });
+    }
+
+    const parsed = createCheckoutSessionBodySchema.parse(req.body);
+    const result = await createCheckoutSessionForPackage({
+      packageId: parsed.packageId,
+      userId,
+      userEmail: user?.email ?? null,
+    });
+    const serviceError = handleServiceError(res, result);
+    if (serviceError) return serviceError;
+
+    return sendResponse(res, {
+      success: true,
+      statusCode: 200,
+      message: 'Stripe checkout session created successfully',
+      data: result.checkout,
+    });
+  } catch (error) {
+    if (error instanceof ZodError) {
+      return sendError(res, {
+        success: false,
+        statusCode: 400,
+        message: 'Validation failed',
+        details: error.errors.map((e) => `${e.path.join('.')}: ${e.message}`).join(', '),
+      });
+    }
+
+    return sendError(res, {
+      success: false,
+      statusCode: 500,
+      message: 'Failed to create checkout session',
       details: (error as Error).message,
     });
   }

@@ -94,6 +94,21 @@ const sendBrevoEmail = async (payload: string) => {
   throw lastError;
 };
 
+const fetchFileAsBase64 = async (url: string, timeoutMs = EMAIL_REQUEST_TIMEOUT_MS) => {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, { signal: controller.signal });
+    if (!response.ok) {
+      throw new Error(`Failed to fetch file: ${response.status}`);
+    }
+    const arrayBuffer = await response.arrayBuffer();
+    return Buffer.from(arrayBuffer).toString('base64');
+  } finally {
+    clearTimeout(timeout);
+  }
+};
+
 export const sendWelcomeEmail = async (to: string, name: string, tempPassword: string) => {
   const { senderEmail, senderName } = getEmailConfig();
   if (!canSendEmail()) {
@@ -217,6 +232,88 @@ export const sendPasswordResetConfirmationEmail = async (to: string, name: strin
       </div>
     </div>`
   });
+
+  await sendBrevoEmail(payload);
+};
+
+type SubscriptionInvoiceEmailPayload = {
+  invoiceId?: string | null;
+  invoiceNumber?: string | null;
+  status?: string | null;
+  amountPaid?: number | null;
+  currency?: string | null;
+  hostedInvoiceUrl?: string | null;
+  invoicePdfUrl?: string | null;
+  createdAt?: Date | null;
+};
+
+export const sendSubscriptionInvoiceEmail = async (
+  to: string,
+  name: string,
+  invoice: SubscriptionInvoiceEmailPayload,
+  options?: {
+    includeAttachment?: boolean;
+  }
+) => {
+  const { senderEmail, senderName } = getEmailConfig();
+  if (!canSendEmail()) {
+    console.warn('====> Email not sent: missing Brevo API env vars');
+    return;
+  }
+
+  const formattedAmount =
+    typeof invoice.amountPaid === 'number' && invoice.currency
+      ? `${(invoice.amountPaid / 100).toFixed(2)} ${invoice.currency.toUpperCase()}`
+      : 'N/A';
+  const invoiceDate = invoice.createdAt ? invoice.createdAt.toUTCString() : 'N/A';
+  const safeName = name || 'there';
+  const invoiceLink = invoice.hostedInvoiceUrl || invoice.invoicePdfUrl || '';
+  const attachmentNameBase = invoice.invoiceNumber || invoice.invoiceId || 'stripe-invoice';
+
+  const emailPayload: Record<string, unknown> = {
+    sender: { name: senderName, email: senderEmail },
+    to: [{ email: to, name: safeName }],
+    subject: 'Payment successful - your invoice',
+    htmlContent: `
+    <div style="font-family: Arial, Helvetica, sans-serif; background-color: #f5f7fb; padding: 30px;">
+      <div style="max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 8px; padding: 30px;">
+        <h2 style="color: #333; margin-top: 0;">Payment successful</h2>
+        <p style="color: #555; font-size: 15px; line-height: 1.6;">
+          Hi ${safeName}, your subscription payment was completed successfully.
+        </p>
+        <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;padding:12px 16px;margin:16px 0;">
+          <p style="margin:4px 0;color:#334155;font-size:14px;">Invoice ID: <strong>${invoice.invoiceId || 'N/A'}</strong></p>
+          <p style="margin:4px 0;color:#334155;font-size:14px;">Invoice Number: <strong>${invoice.invoiceNumber || 'N/A'}</strong></p>
+          <p style="margin:4px 0;color:#334155;font-size:14px;">Status: <strong>${invoice.status || 'N/A'}</strong></p>
+          <p style="margin:4px 0;color:#334155;font-size:14px;">Amount Paid: <strong>${formattedAmount}</strong></p>
+          <p style="margin:4px 0;color:#334155;font-size:14px;">Date: <strong>${invoiceDate}</strong></p>
+        </div>
+        ${invoiceLink ? `<p><a href="${invoiceLink}" style="display:inline-block;background:#0f172a;color:#fff;text-decoration:none;padding:10px 14px;border-radius:8px;font-weight:600;">View Invoice</a></p>` : ''}
+        <p style="color: #555; font-size: 14px;">
+          Thanks,<br/>
+          <strong>The Cliento Team</strong>
+        </p>
+      </div>
+    </div>`,
+  };
+
+  const includeAttachment = options?.includeAttachment ?? true;
+
+  if (includeAttachment && invoice.invoicePdfUrl) {
+    try {
+      const base64Content = await fetchFileAsBase64(invoice.invoicePdfUrl);
+      emailPayload.attachment = [
+        {
+          name: `${attachmentNameBase}.pdf`,
+          content: base64Content,
+        },
+      ];
+    } catch (error) {
+      console.warn(`====> Invoice PDF attachment skipped: ${(error as Error).message}`);
+    }
+  }
+
+  const payload = JSON.stringify(emailPayload);
 
   await sendBrevoEmail(payload);
 };
