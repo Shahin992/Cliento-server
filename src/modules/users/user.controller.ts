@@ -116,11 +116,12 @@ export const signin = async (req: Request, res: Response, next: NextFunction) =>
       });
     }
     const { password: _password, ...safeUser } = result.user.toObject();
-     res.cookie('cliento_token', result.token, {
+    res.cookie('cliento_token', result.token, {
       httpOnly: true,
       secure: true,
-      sameSite: "none",
-      expires: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+      sameSite:"none",
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+      path: "/",
     });
     return sendResponse(res, {
       success: true,
