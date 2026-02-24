@@ -11,14 +11,15 @@ export const authenticate = async (req: Request, res: Response, next: NextFuncti
       .filter(Boolean)
       .map((c) => {
         const idx = c.indexOf('=');
+        if (idx === -1) return [c, ''];
         return [c.slice(0, idx), decodeURIComponent(c.slice(idx + 1))];
       })
   );
 
-  const bearer = req.headers.authorization?.startsWith('Bearer ')
-    ? req.headers.authorization.split(' ')[1]
-    : undefined;
-  const token = cookies['cliento_token'] || bearer;
+  const authHeader = req.headers.authorization?.trim();
+  const bearerMatch = authHeader?.match(/^Bearer\s+(.+)$/i);
+  const bearer = bearerMatch?.[1];
+  const token = bearer || cookies['cliento_token'];
 
   if (!token) {
     return res.status(401).json({ success: false, message: 'You have no access to this route' });
