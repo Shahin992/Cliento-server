@@ -304,4 +304,54 @@ export const retrieveStripeSubscription = async (subscriptionId: string) => {
   return getFromStripe(`/v1/subscriptions/${subscriptionId}`, query);
 };
 
+export const createStripeCustomer = async (payload: { email?: string | null; userId: string }) => {
+  const body = new URLSearchParams();
+  body.append('metadata[user_id]', payload.userId);
+  if (payload.email) {
+    body.append('email', payload.email);
+  }
+
+  return postToStripe('/v1/customers', body);
+};
+
+export const createStripeSetupIntent = async (customerId: string) => {
+  const body = new URLSearchParams();
+  body.append('customer', customerId);
+  body.append('usage', 'off_session');
+  body.append('payment_method_types[]', 'card');
+
+  return postToStripe('/v1/setup_intents', body);
+};
+
+export const attachStripePaymentMethodToCustomer = async (
+  paymentMethodId: string,
+  customerId: string
+) => {
+  const body = new URLSearchParams();
+  body.append('customer', customerId);
+  return postToStripe(`/v1/payment_methods/${paymentMethodId}/attach`, body);
+};
+
+export const retrieveStripePaymentMethod = async (paymentMethodId: string) => {
+  return getFromStripe(`/v1/payment_methods/${paymentMethodId}`);
+};
+
+export const setStripeCustomerDefaultPaymentMethod = async (
+  customerId: string,
+  paymentMethodId: string
+) => {
+  const body = new URLSearchParams();
+  body.append('invoice_settings[default_payment_method]', paymentMethodId);
+  return postToStripe(`/v1/customers/${customerId}`, body);
+};
+
+export const setStripeSubscriptionDefaultPaymentMethod = async (
+  subscriptionId: string,
+  paymentMethodId: string
+) => {
+  const body = new URLSearchParams();
+  body.append('default_payment_method', paymentMethodId);
+  return postToStripe(`/v1/subscriptions/${subscriptionId}`, body);
+};
+
 export { StripeIntegrationError };

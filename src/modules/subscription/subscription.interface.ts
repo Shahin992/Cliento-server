@@ -34,7 +34,8 @@ export interface IBillingSubscription extends Document {
   canceledAt?: Date | null;
   trialStart?: Date | null;
   trialEnd?: Date | null;
-  card?: ISubscriptionCard | null;
+  defaultPaymentMethodId?: string | null;
+  cards?: ISubscriptionCard[];
   latestInvoiceId?: string | null;
   latestEventId?: string | null;
   isCurrent: boolean;

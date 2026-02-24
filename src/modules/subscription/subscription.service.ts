@@ -2,6 +2,15 @@ import { BillingSubscription } from './subscription.model';
 import { ListSubscriptionsQuery, SubscriptionStatus } from './subscription.interface';
 import { BillingPackage } from '../billing/package.model';
 import { getStripeCheckoutSessionSummary } from '../billing/package.service';
+import {
+  attachStripePaymentMethodToCustomer,
+  createStripeCustomer,
+  createStripeSetupIntent,
+  retrieveStripePaymentMethod,
+  setStripeCustomerDefaultPaymentMethod,
+  setStripeSubscriptionDefaultPaymentMethod,
+  StripeIntegrationError,
+} from '../billing/stripe.service';
 import { User } from '../users/user.model';
 import { sendSubscriptionInvoiceEmail } from '../../config/email';
 
@@ -9,6 +18,54 @@ const toMajorAmount = (minorAmount: number, currency: string) => {
   const twoDecimalCurrencies = new Set(['usd', 'eur', 'gbp', 'bdt']);
   if (!twoDecimalCurrencies.has(currency.toLowerCase())) return minorAmount;
   return minorAmount / 100;
+};
+
+const normalizeCards = (cards?: Array<{
+  paymentMethodId?: string;
+  brand?: string;
+  last4?: string;
+  expMonth?: number;
+  expYear?: number;
+}> | null) => {
+  if (!Array.isArray(cards)) return [];
+
+  return cards.filter(
+    (card): card is {
+      paymentMethodId: string;
+      brand: string;
+      last4: string;
+      expMonth: number;
+      expYear: number;
+    } =>
+      !!card &&
+      typeof card.paymentMethodId === 'string' &&
+      typeof card.brand === 'string' &&
+      typeof card.last4 === 'string' &&
+      typeof card.expMonth === 'number' &&
+      typeof card.expYear === 'number'
+  );
+};
+
+const mergeCard = (
+  existingCards: Array<{
+    paymentMethodId: string;
+    brand: string;
+    last4: string;
+    expMonth: number;
+    expYear: number;
+  }>,
+  nextCard: {
+    paymentMethodId: string;
+    brand: string;
+    last4: string;
+    expMonth: number;
+    expYear: number;
+  }
+) => {
+  const withoutCurrent = existingCards.filter(
+    (card) => card.paymentMethodId !== nextCard.paymentMethodId
+  );
+  return [nextCard, ...withoutCurrent];
 };
 
 export const syncSubscriptionFromCheckoutSession = async (userId: string, sessionId: string) => {
@@ -106,6 +163,15 @@ export const syncSubscriptionFromCheckoutSession = async (userId: string, sessio
     { $set: { isCurrent: false } }
   );
 
+  const existingSubscription = await BillingSubscription.findOne({
+    stripeSubscriptionId: session.subscriptionId,
+  }).select('cards defaultPaymentMethodId');
+  const existingCards = normalizeCards(existingSubscription?.cards);
+  const cards = card ? mergeCard(existingCards, card) : existingCards;
+  const defaultPaymentMethodId = card
+    ? card.paymentMethodId
+    : (existingSubscription?.defaultPaymentMethodId ?? cards[0]?.paymentMethodId ?? null);
+
   const subscription = await BillingSubscription.findOneAndUpdate(
     { stripeSubscriptionId: session.subscriptionId },
     {
@@ -124,10 +190,14 @@ export const syncSubscriptionFromCheckoutSession = async (userId: string, sessio
         canceledAt,
         trialStart,
         trialEnd,
-        card,
+        defaultPaymentMethodId,
+        cards,
         latestInvoiceId: session.latestInvoiceId || null,
         isCurrent: true,
         latestEventId: session.id,
+      },
+      $unset: {
+        card: '',
       },
     },
     { new: true, upsert: true }
@@ -166,6 +236,133 @@ export const syncSubscriptionFromCheckoutSession = async (userId: string, sessio
   }
 
   return { status: 'ok' as const, subscription };
+};
+
+export const createSetupIntentForCurrentSubscription = async (userId: string) => {
+  const subscription = await BillingSubscription.findOne({
+    userId,
+    isCurrent: true,
+  }).select('_id stripeCustomerId');
+
+  if (!subscription) {
+    return { status: 'not_found' as const };
+  }
+
+  let customerId = String(subscription.stripeCustomerId || '').trim();
+  try {
+    if (!customerId) {
+      const user = await User.findById(userId).select('email');
+      const customer = await createStripeCustomer({
+        userId,
+        email: user?.email ?? null,
+      });
+      customerId = String(customer.id || '').trim();
+      if (!customerId) {
+        return { status: 'stripe_error' as const, message: 'Stripe customer creation failed.' };
+      }
+
+      await BillingSubscription.updateOne(
+        { _id: subscription._id },
+        { $set: { stripeCustomerId: customerId } }
+      );
+    }
+
+    const setupIntent = await createStripeSetupIntent(customerId);
+    const clientSecret = String(setupIntent.client_secret || '').trim();
+    if (!clientSecret) {
+      return { status: 'stripe_error' as const, message: 'Stripe setup intent missing client_secret.' };
+    }
+
+    return {
+      status: 'ok' as const,
+      clientSecret,
+    };
+  } catch (error) {
+    if (error instanceof StripeIntegrationError) {
+      if (error.status === 'missing_secret_key') {
+        return { status: 'stripe_not_configured' as const, message: error.message };
+      }
+      return { status: 'stripe_error' as const, message: error.message };
+    }
+    throw error;
+  }
+};
+
+export const attachPaymentMethodToCurrentSubscription = async (
+  userId: string,
+  paymentMethodId: string
+) => {
+  const subscription = await BillingSubscription.findOne({
+    userId,
+    isCurrent: true,
+  }).select('_id stripeCustomerId stripeSubscriptionId cards');
+
+  if (!subscription) {
+    return { status: 'not_found' as const };
+  }
+
+  const customerId = String(subscription.stripeCustomerId || '').trim();
+  if (!customerId) {
+    return { status: 'customer_id_missing' as const };
+  }
+
+  try {
+    await attachStripePaymentMethodToCustomer(paymentMethodId, customerId);
+    await setStripeCustomerDefaultPaymentMethod(customerId, paymentMethodId);
+
+    if (subscription.stripeSubscriptionId) {
+      await setStripeSubscriptionDefaultPaymentMethod(
+        String(subscription.stripeSubscriptionId),
+        paymentMethodId
+      );
+    }
+
+    const paymentMethod = await retrieveStripePaymentMethod(paymentMethodId);
+    if (paymentMethod?.type !== 'card' || !paymentMethod.card) {
+      return { status: 'invalid_payment_method' as const };
+    }
+
+    const card = {
+      paymentMethodId: String(paymentMethod.id),
+      brand: String(paymentMethod.card.brand || '').toLowerCase(),
+      last4: String(paymentMethod.card.last4 || ''),
+      expMonth: Number(paymentMethod.card.exp_month),
+      expYear: Number(paymentMethod.card.exp_year),
+    };
+
+    if (!card.brand || !card.last4 || !card.expMonth || !card.expYear) {
+      return { status: 'invalid_payment_method' as const };
+    }
+
+    const existingCards = normalizeCards(subscription.cards);
+    const cards = mergeCard(existingCards, card);
+
+    await BillingSubscription.updateOne(
+      { _id: subscription._id },
+      {
+        $set: {
+          cards,
+          defaultPaymentMethodId: paymentMethodId,
+        },
+        $unset: { card: '' },
+      }
+    );
+
+    return {
+      status: 'ok' as const,
+      data: {
+        paymentMethodId: card.paymentMethodId,
+      },
+    };
+  } catch (error) {
+    if (error instanceof StripeIntegrationError) {
+      if (error.status === 'missing_secret_key') {
+        return { status: 'stripe_not_configured' as const, message: error.message };
+      }
+      return { status: 'stripe_error' as const, message: error.message };
+    }
+    throw error;
+  }
 };
 
 export const getCurrentSubscription = async (userId: string) => {

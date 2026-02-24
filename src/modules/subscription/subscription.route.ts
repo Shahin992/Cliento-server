@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import { authenticate, authorize } from '../../middleware/authMiddlewares';
 import {
+  attachPaymentMethodToCurrentSubscriptionHandler,
+  createSetupIntentForCurrentSubscriptionHandler,
   getCurrentSubscriptionHandler,
   getSubscriptionByIdHandler,
   listSubscriptionsHandler,
@@ -56,6 +58,20 @@ router.get('/me/current', authenticate, authorize(SUBSCRIPTION_ACCESS_ROLES), ge
  *         description: Unauthorized
  */
 router.get('/me/history', authenticate, authorize(SUBSCRIPTION_ACCESS_ROLES), listSubscriptionsHandler);
+
+router.post(
+  '/me/setup-intent',
+  authenticate,
+  authorize(SUBSCRIPTION_ACCESS_ROLES),
+  createSetupIntentForCurrentSubscriptionHandler
+);
+
+router.post(
+  '/me/payment-method',
+  authenticate,
+  authorize(SUBSCRIPTION_ACCESS_ROLES),
+  attachPaymentMethodToCurrentSubscriptionHandler
+);
 
 /**
  * @swagger
