@@ -119,9 +119,10 @@ export const signin = async (req: Request, res: Response, next: NextFunction) =>
     res.cookie('cliento_token', result.token, {
       httpOnly: true,
       secure: true,
-      sameSite: 'lax',
-      domain: '.vercel.app',
+      sameSite: 'none',
       maxAge: 7 * 24 * 60 * 60 * 1000,
+      path: '/'
+      
     });
     return sendResponse(res, {
       success: true,
