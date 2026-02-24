@@ -116,10 +116,17 @@ export const signin = async (req: Request, res: Response, next: NextFunction) =>
       });
     }
     const { password: _password, ...safeUser } = result.user.toObject();
-    res.cookie('cliento_token', result.token, {
+    // res.cookie('cliento_token', result.token, {
+    //   httpOnly: true,
+    //   secure: process.env.NODE_ENV === 'production',
+    //   sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+    //   maxAge: 7 * 24 * 60 * 60 * 1000,
+    // });
+    res.cookie('cliento_token', token, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+      secure: true,
+      sameSite: 'lax',
+      domain: '.vercel.app',
       maxAge: 7 * 24 * 60 * 60 * 1000,
     });
     return sendResponse(res, {
