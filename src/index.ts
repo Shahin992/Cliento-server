@@ -26,24 +26,24 @@ const allowedOrigins = new Set([
     "https://cliento-server.vercel.app",
 ]);
 
-const corsOptions = {
-    origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
-        // Allow non-browser requests (no Origin) and known origins.
-        if (!origin || allowedOrigins.has(origin)) {
-            return callback(null, true);
-        }
+app.use(
+    cors({
+        origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
+            // Allow non-browser requests (no Origin) and known origins.
+            if (!origin || allowedOrigins.has(origin)) {
+                return callback(null, true);
+            }
 
-        return callback(new Error(`CORS blocked for origin: ${origin}`));
-    },
-    credentials: true,
-    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"],
-    maxAge: 86400,
-};
+            return callback(new Error(`CORS blocked for origin: ${origin}`));
+        },
+        credentials: true,
+        methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        allowedHeaders: ["Content-Type", "Authorization"],
+        maxAge: 86400,
+    })
+);
 
-app.use(cors(corsOptions));
-
-app.options('*', cors(corsOptions));
+app.options('*', cors());
 
 const swaggerServerUrl = process.env.SWAGGER_SERVER_URL || `http://localhost:${PORT}`;
 
