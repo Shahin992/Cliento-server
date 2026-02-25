@@ -6,6 +6,7 @@ import authRoutes from '../src/modules/users/user.route';
 import userRoutes from '../src/modules/users/users.route';
 import uploadRoutes from '../src/modules/upload/upload.route';
 import contactRoutes from '../src/modules/contacts/contact.route';
+import contactNoteRoutes from '../src/modules/contacts/contactNote.route';
 import pipelineRoutes from '../src/modules/deals/pipeline.route';
 import dealRoutes from '../src/modules/deals/deal.route';
 import taskRoutes from '../src/modules/tasks/task.route';
@@ -113,12 +114,13 @@ app.get('/api-docs', swaggerUi.setup(swaggerSpec, {
                 '/api/auth': 2,
                 '/api/users': 3,
                 '/api/contacts': 4,
-                '/api/pipelines': 5,
-                '/api/deals': 6,
-                '/api/tasks': 7,
-                '/api/mail/google': 8,
-                '/api/packages': 9,
-                '/api/subscriptions': 10,
+                '/api/contact-notes': 5,
+                '/api/pipelines': 6,
+                '/api/deals': 7,
+                '/api/tasks': 8,
+                '/api/mail/google': 9,
+                '/api/packages': 10,
+                '/api/subscriptions': 11,
             };
 
             const getPathRank = (path: string) => {
@@ -147,6 +149,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/upload', uploadRoutes);
 app.use('/api/contacts', contactRoutes);
+app.use('/api/contact-notes', contactNoteRoutes);
 app.use('/api/pipelines', pipelineRoutes);
 app.use('/api/deals', dealRoutes);
 app.use('/api/tasks', taskRoutes);
