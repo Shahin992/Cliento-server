@@ -23,6 +23,7 @@ type StripeCreateCheckoutSessionInput = {
   trialPeriodDays: number;
   userId: string;
   userEmail?: string | null;
+  customerId?: string | null;
 };
 
 class StripeIntegrationError extends Error {
@@ -200,7 +201,9 @@ export const createStripeCheckoutSession = async (payload: StripeCreateCheckoutS
   body.append('subscription_data[metadata][amount]', String(payload.amount));
   body.append('allow_promotion_codes', 'true');
 
-  if (payload.userEmail) {
+  if (payload.customerId) {
+    body.append('customer', payload.customerId);
+  } else if (payload.userEmail) {
     body.append('customer_email', payload.userEmail);
   }
 
@@ -294,6 +297,7 @@ export const retrieveStripeSubscription = async (subscriptionId: string) => {
   const query = new URLSearchParams();
   query.append('expand[]', 'items');
   query.append('expand[]', 'items.data');
+  query.append('expand[]', 'customer');
   query.append('expand[]', 'default_payment_method');
   query.append('expand[]', 'latest_invoice');
   query.append('expand[]', 'latest_invoice.lines');

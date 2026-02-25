@@ -6,6 +6,7 @@ import {
   attachStripePaymentMethodToCustomer,
   createStripeCustomer,
   createStripeSetupIntent,
+  retrieveStripeSubscription,
   retrieveStripePaymentMethod,
   setStripeCustomerDefaultPaymentMethod,
   setStripeSubscriptionDefaultPaymentMethod,
@@ -66,6 +67,63 @@ const mergeCard = (
     (card) => card.paymentMethodId !== nextCard.paymentMethodId
   );
   return [nextCard, ...withoutCurrent];
+};
+
+const getPaymentMethodId = (value: any): string | null => {
+  if (typeof value === 'string') return value;
+  if (value && typeof value === 'object' && typeof value.id === 'string') return value.id;
+  return null;
+};
+
+const buildCardsWithDefault = (
+  cards: Array<{
+    paymentMethodId: string;
+    brand: string;
+    last4: string;
+    expMonth: number;
+    expYear: number;
+  }> | null | undefined,
+  defaultPaymentMethodId: string | null
+) => {
+  const normalized = normalizeCards(cards);
+  return normalized.map((card) => ({
+    ...card,
+    isDefault: Boolean(defaultPaymentMethodId) && card.paymentMethodId === defaultPaymentMethodId,
+  }));
+};
+
+const resolveStripeDefaultPaymentMethodId = async (stripeSubscriptionId?: string | null) => {
+  const subscriptionId = String(stripeSubscriptionId || '').trim();
+  if (!subscriptionId) return null;
+
+  try {
+    const stripeSubscription = await retrieveStripeSubscription(subscriptionId);
+    const subscriptionDefaultPm = getPaymentMethodId(stripeSubscription?.default_payment_method);
+    if (subscriptionDefaultPm) return subscriptionDefaultPm;
+
+    const latestInvoice =
+      stripeSubscription?.latest_invoice && typeof stripeSubscription.latest_invoice === 'object'
+        ? stripeSubscription.latest_invoice
+        : null;
+    const invoicePaymentIntent =
+      latestInvoice?.payment_intent && typeof latestInvoice.payment_intent === 'object'
+        ? latestInvoice.payment_intent
+        : null;
+    const invoicePaymentMethod = getPaymentMethodId(invoicePaymentIntent?.payment_method);
+    if (invoicePaymentMethod) return invoicePaymentMethod;
+
+    const customer =
+      stripeSubscription?.customer && typeof stripeSubscription.customer === 'object'
+        ? stripeSubscription.customer
+        : null;
+    const customerDefaultPm = getPaymentMethodId(customer?.invoice_settings?.default_payment_method);
+    return customerDefaultPm;
+  } catch (error) {
+    if (error instanceof StripeIntegrationError) {
+      return null;
+    }
+    throw error;
+  }
 };
 
 export const syncSubscriptionFromCheckoutSession = async (userId: string, sessionId: string) => {
@@ -379,8 +437,30 @@ export const getCurrentSubscription = async (userId: string) => {
   if (!subscription) {
     return { status: 'not_found' as const };
   }
+  const subscriptionObj = subscription.toObject();
+  const stripeDefaultPaymentMethodId =
+    (await resolveStripeDefaultPaymentMethodId(subscriptionObj.stripeSubscriptionId)) ||
+    (subscriptionObj.defaultPaymentMethodId ? String(subscriptionObj.defaultPaymentMethodId) : null);
+  const cards = buildCardsWithDefault(subscriptionObj.cards as any, stripeDefaultPaymentMethodId);
 
-  return { status: 'ok' as const, subscription };
+  if (
+    stripeDefaultPaymentMethodId &&
+    stripeDefaultPaymentMethodId !== String(subscriptionObj.defaultPaymentMethodId || '')
+  ) {
+    await BillingSubscription.updateOne(
+      { _id: subscriptionObj._id },
+      { $set: { defaultPaymentMethodId: stripeDefaultPaymentMethodId } }
+    );
+  }
+
+  return {
+    status: 'ok' as const,
+    subscription: {
+      ...subscriptionObj,
+      defaultPaymentMethodId: stripeDefaultPaymentMethodId,
+      cards,
+    },
+  };
 };
 
 export const getSubscriptionById = async (userId: string, subscriptionId: string) => {
@@ -395,8 +475,30 @@ export const getSubscriptionById = async (userId: string, subscriptionId: string
   if (!subscription) {
     return { status: 'not_found' as const };
   }
+  const subscriptionObj = subscription.toObject();
+  const stripeDefaultPaymentMethodId =
+    (await resolveStripeDefaultPaymentMethodId(subscriptionObj.stripeSubscriptionId)) ||
+    (subscriptionObj.defaultPaymentMethodId ? String(subscriptionObj.defaultPaymentMethodId) : null);
+  const cards = buildCardsWithDefault(subscriptionObj.cards as any, stripeDefaultPaymentMethodId);
 
-  return { status: 'ok' as const, subscription };
+  if (
+    stripeDefaultPaymentMethodId &&
+    stripeDefaultPaymentMethodId !== String(subscriptionObj.defaultPaymentMethodId || '')
+  ) {
+    await BillingSubscription.updateOne(
+      { _id: subscriptionObj._id },
+      { $set: { defaultPaymentMethodId: stripeDefaultPaymentMethodId } }
+    );
+  }
+
+  return {
+    status: 'ok' as const,
+    subscription: {
+      ...subscriptionObj,
+      defaultPaymentMethodId: stripeDefaultPaymentMethodId,
+      cards,
+    },
+  };
 };
 
 export const listSubscriptions = async (userId: string, query: ListSubscriptionsQuery) => {
@@ -416,8 +518,21 @@ export const listSubscriptions = async (userId: string, query: ListSubscriptions
 
   const totalPages = Math.ceil(total / query.limit);
 
+  const mappedSubscriptions = subscriptions.map((subscription) => {
+    const subscriptionObj = subscription.toObject();
+    const defaultPaymentMethodId = subscriptionObj.defaultPaymentMethodId
+      ? String(subscriptionObj.defaultPaymentMethodId)
+      : null;
+    const cards = buildCardsWithDefault(subscriptionObj.cards as any, defaultPaymentMethodId);
+
+    return {
+      ...subscriptionObj,
+      cards,
+    };
+  });
+
   return {
-    subscriptions,
+    subscriptions: mappedSubscriptions,
     pagination: {
       page: query.page,
       limit: query.limit,

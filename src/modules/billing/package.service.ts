@@ -1,6 +1,9 @@
 import { CreatePackageInput, UpdatePackageInput } from './package.interface';
 import { BillingPackage } from './package.model';
+import { BillingSubscription } from '../subscription/subscription.model';
+import { User } from '../users/user.model';
 import {
+  createStripeCustomer,
   createStripeCatalog,
   createStripeCheckoutSession,
   deactivateStripeCatalog,
@@ -253,6 +256,33 @@ type CreateCheckoutSessionInput = {
   userEmail?: string | null;
 };
 
+const getOrCreateStripeCustomerIdForUser = async (userId: string, userEmail?: string | null) => {
+  const existingSubscription = await BillingSubscription.findOne({
+    userId,
+    stripeCustomerId: { $exists: true, $ne: null },
+  })
+    .sort({ updatedAt: -1 })
+    .select('stripeCustomerId');
+
+  const existingCustomerId = String(existingSubscription?.stripeCustomerId || '').trim();
+  if (existingCustomerId) {
+    return existingCustomerId;
+  }
+
+  const email = userEmail ?? (await User.findById(userId).select('email'))?.email ?? null;
+  const customer = await createStripeCustomer({
+    userId,
+    email,
+  });
+
+  const customerId = String(customer.id || '').trim();
+  if (!customerId) {
+    throw new StripeIntegrationError('stripe_api_error', 'Stripe customer creation failed.');
+  }
+
+  return customerId;
+};
+
 export const createCheckoutSessionForPackage = async (payload: CreateCheckoutSessionInput) => {
   const packageDoc = await BillingPackage.findById(payload.packageId).select({
     _id: 1,
@@ -277,6 +307,7 @@ export const createCheckoutSessionForPackage = async (payload: CreateCheckoutSes
   }
 
   try {
+    const customerId = await getOrCreateStripeCustomerIdForUser(payload.userId, payload.userEmail);
     const session = await createStripeCheckoutSession({
       stripePriceId: packageDoc.price.stripePriceId,
       packageId: String(packageDoc._id),
@@ -288,6 +319,7 @@ export const createCheckoutSessionForPackage = async (payload: CreateCheckoutSes
       trialPeriodDays: packageDoc.trialPeriodDays,
       userId: payload.userId,
       userEmail: payload.userEmail ?? null,
+      customerId,
     });
 
     return {
