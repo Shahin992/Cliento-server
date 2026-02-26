@@ -23,6 +23,10 @@ type StripeCreateCheckoutSessionInput = {
   trialPeriodDays: number;
   userId: string;
   userEmail?: string | null;
+  userFullName?: string | null;
+  userCompanyName?: string | null;
+  userRole?: string | null;
+  userTeamId?: string | null;
   customerId?: string | null;
 };
 
@@ -190,12 +194,24 @@ export const createStripeCheckoutSession = async (payload: StripeCreateCheckoutS
   body.append('metadata[package_id]', payload.packageId);
   body.append('metadata[package_code]', payload.packageCode.toLowerCase());
   body.append('metadata[user_id]', payload.userId);
+  if (payload.userEmail) body.append('metadata[user_email]', payload.userEmail);
+  if (payload.userFullName) body.append('metadata[user_full_name]', payload.userFullName);
+  if (payload.userCompanyName) body.append('metadata[user_company_name]', payload.userCompanyName);
+  if (payload.userRole) body.append('metadata[user_role]', payload.userRole);
+  if (payload.userTeamId) body.append('metadata[user_team_id]', payload.userTeamId);
   body.append('metadata[billing_cycle]', payload.billingCycle);
   body.append('metadata[currency]', payload.currency);
   body.append('metadata[amount]', String(payload.amount));
   body.append('subscription_data[metadata][package_id]', payload.packageId);
   body.append('subscription_data[metadata][package_code]', payload.packageCode.toLowerCase());
   body.append('subscription_data[metadata][user_id]', payload.userId);
+  if (payload.userEmail) body.append('subscription_data[metadata][user_email]', payload.userEmail);
+  if (payload.userFullName) body.append('subscription_data[metadata][user_full_name]', payload.userFullName);
+  if (payload.userCompanyName) {
+    body.append('subscription_data[metadata][user_company_name]', payload.userCompanyName);
+  }
+  if (payload.userRole) body.append('subscription_data[metadata][user_role]', payload.userRole);
+  if (payload.userTeamId) body.append('subscription_data[metadata][user_team_id]', payload.userTeamId);
   body.append('subscription_data[metadata][billing_cycle]', payload.billingCycle);
   body.append('subscription_data[metadata][currency]', payload.currency);
   body.append('subscription_data[metadata][amount]', String(payload.amount));
@@ -308,11 +324,23 @@ export const retrieveStripeSubscription = async (subscriptionId: string) => {
   return getFromStripe(`/v1/subscriptions/${subscriptionId}`, query);
 };
 
-export const createStripeCustomer = async (payload: { email?: string | null; userId: string }) => {
+export const createStripeCustomer = async (payload: {
+  email?: string | null;
+  userId: string;
+  fullName?: string | null;
+  companyName?: string | null;
+  role?: string | null;
+  teamId?: string | null;
+}) => {
   const body = new URLSearchParams();
   body.append('metadata[user_id]', payload.userId);
+  if (payload.fullName) body.append('metadata[full_name]', payload.fullName);
+  if (payload.companyName) body.append('metadata[company_name]', payload.companyName);
+  if (payload.role) body.append('metadata[role]', payload.role);
+  if (payload.teamId) body.append('metadata[team_id]', payload.teamId);
   if (payload.email) {
     body.append('email', payload.email);
+    body.append('metadata[email]', payload.email);
   }
 
   return postToStripe('/v1/customers', body);

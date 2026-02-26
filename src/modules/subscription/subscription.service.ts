@@ -75,6 +75,12 @@ const getPaymentMethodId = (value: any): string | null => {
   return null;
 };
 
+const toDateFromUnixSecondsOrNull = (value: unknown) => {
+  if (typeof value === 'number' && Number.isFinite(value)) return new Date(value * 1000);
+  if (typeof value === 'string' && /^\d+$/.test(value)) return new Date(Number(value) * 1000);
+  return null;
+};
+
 const buildCardsWithDefault = (
   cards: Array<{
     paymentMethodId: string;
@@ -90,6 +96,49 @@ const buildCardsWithDefault = (
     ...card,
     isDefault: Boolean(defaultPaymentMethodId) && card.paymentMethodId === defaultPaymentMethodId,
   }));
+};
+
+const dedupeCardsByPaymentMethod = (
+  cards: Array<{
+    paymentMethodId: string;
+    brand: string;
+    last4: string;
+    expMonth: number;
+    expYear: number;
+  }>
+) => {
+  const seen = new Set<string>();
+  const unique: Array<{
+    paymentMethodId: string;
+    brand: string;
+    last4: string;
+    expMonth: number;
+    expYear: number;
+  }> = [];
+
+  for (const card of cards) {
+    if (seen.has(card.paymentMethodId)) continue;
+    seen.add(card.paymentMethodId);
+    unique.push(card);
+  }
+
+  return unique;
+};
+
+const getKnownCardsForStripeCustomer = async (userId: string, stripeCustomerId?: string | null) => {
+  const customerId = String(stripeCustomerId || '').trim();
+  if (!customerId) return [];
+
+  const subscriptions = await BillingSubscription.find({
+    userId,
+    stripeCustomerId: customerId,
+  })
+    .sort({ updatedAt: -1 })
+    .select('cards');
+
+  return dedupeCardsByPaymentMethod(
+    subscriptions.flatMap((item) => normalizeCards(item.cards as any))
+  );
 };
 
 const resolveStripeDefaultPaymentMethodId = async (stripeSubscriptionId?: string | null) => {
@@ -225,7 +274,12 @@ export const syncSubscriptionFromCheckoutSession = async (userId: string, sessio
     stripeSubscriptionId: session.subscriptionId,
   }).select('cards defaultPaymentMethodId');
   const existingCards = normalizeCards(existingSubscription?.cards);
-  const cards = card ? mergeCard(existingCards, card) : existingCards;
+  const knownCards = await getKnownCardsForStripeCustomer(userId, session.customerId);
+  const cards = dedupeCardsByPaymentMethod([
+    ...(card ? [card] : []),
+    ...existingCards,
+    ...knownCards,
+  ]);
   const defaultPaymentMethodId = card
     ? card.paymentMethodId
     : (existingSubscription?.defaultPaymentMethodId ?? cards[0]?.paymentMethodId ?? null);
@@ -296,6 +350,181 @@ export const syncSubscriptionFromCheckoutSession = async (userId: string, sessio
   return { status: 'ok' as const, subscription };
 };
 
+const refreshSubscriptionSnapshotFromStripe = async (subscriptionObj: any) => {
+  const stripeSubscriptionId = String(subscriptionObj?.stripeSubscriptionId || '').trim();
+  if (!stripeSubscriptionId) {
+    return {
+      subscriptionObj,
+      stripeDefaultPaymentMethodId: subscriptionObj?.defaultPaymentMethodId
+        ? String(subscriptionObj.defaultPaymentMethodId)
+        : null,
+      cards: normalizeCards(subscriptionObj?.cards as any),
+    };
+  }
+
+  try {
+    const stripeSubscription = await retrieveStripeSubscription(stripeSubscriptionId);
+    const rawStripeStatus = String(stripeSubscription?.status || '').toLowerCase();
+    const allowedStatuses = new Set<SubscriptionStatus>([
+      'incomplete',
+      'incomplete_expired',
+      'trialing',
+      'active',
+      'past_due',
+      'canceled',
+      'unpaid',
+    ]);
+    const status = allowedStatuses.has(rawStripeStatus as SubscriptionStatus)
+      ? (rawStripeStatus as SubscriptionStatus)
+      : (subscriptionObj.status as SubscriptionStatus);
+
+    const firstItem = Array.isArray(stripeSubscription?.items?.data)
+      ? stripeSubscription.items.data[0]
+      : null;
+    const priceObj =
+      firstItem?.price && typeof firstItem.price === 'object'
+        ? firstItem.price
+        : null;
+    const recurringInterval = String(priceObj?.recurring?.interval || '').toLowerCase();
+    const billingCycle = recurringInterval === 'year'
+      ? 'yearly'
+      : recurringInterval === 'month'
+        ? 'monthly'
+        : subscriptionObj.billingCycle;
+    const currency = String(priceObj?.currency || subscriptionObj.currency || 'usd').toLowerCase();
+    const unitAmountMinor = Number(priceObj?.unit_amount || 0);
+    const amount = unitAmountMinor > 0 ? toMajorAmount(unitAmountMinor, currency) : subscriptionObj.amount;
+
+    const currentPeriodStart =
+      toDateFromUnixSecondsOrNull(stripeSubscription?.current_period_start ?? firstItem?.current_period_start) ||
+      subscriptionObj.currentPeriodStart ||
+      null;
+    const currentPeriodEnd =
+      toDateFromUnixSecondsOrNull(stripeSubscription?.current_period_end ?? firstItem?.current_period_end) ||
+      subscriptionObj.currentPeriodEnd ||
+      null;
+    const trialStart =
+      toDateFromUnixSecondsOrNull(stripeSubscription?.trial_start) || subscriptionObj.trialStart || null;
+    const trialEnd =
+      toDateFromUnixSecondsOrNull(stripeSubscription?.trial_end) || subscriptionObj.trialEnd || null;
+    const canceledAt =
+      toDateFromUnixSecondsOrNull(stripeSubscription?.canceled_at) || subscriptionObj.canceledAt || null;
+    const cancelAtPeriodEnd = Boolean(stripeSubscription?.cancel_at_period_end ?? subscriptionObj.cancelAtPeriodEnd);
+
+    const latestInvoice =
+      stripeSubscription?.latest_invoice && typeof stripeSubscription.latest_invoice === 'object'
+        ? stripeSubscription.latest_invoice
+        : null;
+    const invoicePaymentIntent =
+      latestInvoice?.payment_intent && typeof latestInvoice.payment_intent === 'object'
+        ? latestInvoice.payment_intent
+        : null;
+    const customer =
+      stripeSubscription?.customer && typeof stripeSubscription.customer === 'object'
+        ? stripeSubscription.customer
+        : null;
+    const stripeDefaultPaymentMethodId =
+      getPaymentMethodId(stripeSubscription?.default_payment_method) ||
+      getPaymentMethodId(invoicePaymentIntent?.payment_method) ||
+      getPaymentMethodId(customer?.invoice_settings?.default_payment_method) ||
+      (subscriptionObj.defaultPaymentMethodId ? String(subscriptionObj.defaultPaymentMethodId) : null);
+
+    let cards = normalizeCards(subscriptionObj.cards as any);
+    if (stripeDefaultPaymentMethodId) {
+      try {
+        const paymentMethod = await retrieveStripePaymentMethod(stripeDefaultPaymentMethodId);
+        if (paymentMethod?.type === 'card' && paymentMethod.card) {
+          const card = {
+            paymentMethodId: String(paymentMethod.id),
+            brand: String(paymentMethod.card.brand || '').toLowerCase(),
+            last4: String(paymentMethod.card.last4 || ''),
+            expMonth: Number(paymentMethod.card.exp_month),
+            expYear: Number(paymentMethod.card.exp_year),
+          };
+          if (card.brand && card.last4 && card.expMonth && card.expYear) {
+            cards = mergeCard(cards, card);
+          }
+        }
+      } catch {
+        // Keep existing cards on Stripe retrieval failure.
+      }
+    }
+
+    const stripeCustomerId =
+      getPaymentMethodId(stripeSubscription?.customer) ||
+      (typeof stripeSubscription?.customer === 'string'
+        ? stripeSubscription.customer
+        : String(subscriptionObj.stripeCustomerId || ''));
+    const latestInvoiceId =
+      typeof latestInvoice?.id === 'string'
+        ? latestInvoice.id
+        : typeof stripeSubscription?.latest_invoice === 'string'
+          ? stripeSubscription.latest_invoice
+          : (subscriptionObj.latestInvoiceId || null);
+
+    await BillingSubscription.updateOne(
+      { _id: subscriptionObj._id },
+      {
+        $set: {
+          stripeCustomerId,
+          status,
+          billingCycle,
+          amount,
+          currency,
+          currentPeriodStart,
+          currentPeriodEnd,
+          cancelAtPeriodEnd,
+          canceledAt,
+          trialStart,
+          trialEnd,
+          defaultPaymentMethodId: stripeDefaultPaymentMethodId,
+          cards,
+          latestInvoiceId,
+        },
+      }
+    );
+
+    const paidStatuses = new Set<SubscriptionStatus>(['active', 'trialing', 'past_due', 'incomplete']);
+    await User.findByIdAndUpdate(String(subscriptionObj.userId), {
+      planType: paidStatuses.has(status) ? 'paid' : 'trial',
+      accessExpiresAt: currentPeriodEnd,
+    });
+
+    return {
+      subscriptionObj: {
+        ...subscriptionObj,
+        stripeCustomerId,
+        status,
+        billingCycle,
+        amount,
+        currency,
+        currentPeriodStart,
+        currentPeriodEnd,
+        cancelAtPeriodEnd,
+        canceledAt,
+        trialStart,
+        trialEnd,
+        defaultPaymentMethodId: stripeDefaultPaymentMethodId,
+        cards,
+        latestInvoiceId,
+      },
+      stripeDefaultPaymentMethodId,
+      cards,
+    };
+  } catch (error) {
+    if (error instanceof StripeIntegrationError) {
+      return {
+        subscriptionObj,
+        stripeDefaultPaymentMethodId: subscriptionObj.defaultPaymentMethodId
+          ? String(subscriptionObj.defaultPaymentMethodId)
+          : null,
+        cards: normalizeCards(subscriptionObj.cards as any),
+      };
+    }
+    throw error;
+  }
+};
+
 export const createSetupIntentForCurrentSubscription = async (userId: string) => {
   const subscription = await BillingSubscription.findOne({
     userId,
@@ -309,10 +538,17 @@ export const createSetupIntentForCurrentSubscription = async (userId: string) =>
   let customerId = String(subscription.stripeCustomerId || '').trim();
   try {
     if (!customerId) {
-      const user = await User.findById(userId).select('email');
+      const user = await User.findById(userId).select('email fullName companyName role teamId');
       const customer = await createStripeCustomer({
         userId,
         email: user?.email ?? null,
+        fullName: user?.fullName ?? null,
+        companyName: user?.companyName ?? null,
+        role: user?.role ?? null,
+        teamId:
+          user?.teamId === null || user?.teamId === undefined
+            ? null
+            : String(user.teamId),
       });
       customerId = String(customer.id || '').trim();
       if (!customerId) {
@@ -437,11 +673,22 @@ export const getCurrentSubscription = async (userId: string) => {
   if (!subscription) {
     return { status: 'not_found' as const };
   }
-  const subscriptionObj = subscription.toObject();
+  const baseSubscriptionObj = subscription.toObject();
+  const refreshed = await refreshSubscriptionSnapshotFromStripe(baseSubscriptionObj);
+  const subscriptionObj = refreshed.subscriptionObj;
+  const knownCards = await getKnownCardsForStripeCustomer(
+    String(subscriptionObj.userId),
+    String(subscriptionObj.stripeCustomerId || '')
+  );
   const stripeDefaultPaymentMethodId =
+    refreshed.stripeDefaultPaymentMethodId ||
     (await resolveStripeDefaultPaymentMethodId(subscriptionObj.stripeSubscriptionId)) ||
     (subscriptionObj.defaultPaymentMethodId ? String(subscriptionObj.defaultPaymentMethodId) : null);
-  const cards = buildCardsWithDefault(subscriptionObj.cards as any, stripeDefaultPaymentMethodId);
+  const mergedCards = dedupeCardsByPaymentMethod([
+    ...refreshed.cards,
+    ...knownCards,
+  ]);
+  const cards = buildCardsWithDefault(mergedCards, stripeDefaultPaymentMethodId);
 
   if (
     stripeDefaultPaymentMethodId &&
@@ -450,6 +697,12 @@ export const getCurrentSubscription = async (userId: string) => {
     await BillingSubscription.updateOne(
       { _id: subscriptionObj._id },
       { $set: { defaultPaymentMethodId: stripeDefaultPaymentMethodId } }
+    );
+  }
+  if (mergedCards.length > normalizeCards(subscriptionObj.cards as any).length) {
+    await BillingSubscription.updateOne(
+      { _id: subscriptionObj._id },
+      { $set: { cards: mergedCards } }
     );
   }
 
@@ -475,11 +728,22 @@ export const getSubscriptionById = async (userId: string, subscriptionId: string
   if (!subscription) {
     return { status: 'not_found' as const };
   }
-  const subscriptionObj = subscription.toObject();
+  const baseSubscriptionObj = subscription.toObject();
+  const refreshed = await refreshSubscriptionSnapshotFromStripe(baseSubscriptionObj);
+  const subscriptionObj = refreshed.subscriptionObj;
+  const knownCards = await getKnownCardsForStripeCustomer(
+    String(subscriptionObj.userId),
+    String(subscriptionObj.stripeCustomerId || '')
+  );
   const stripeDefaultPaymentMethodId =
+    refreshed.stripeDefaultPaymentMethodId ||
     (await resolveStripeDefaultPaymentMethodId(subscriptionObj.stripeSubscriptionId)) ||
     (subscriptionObj.defaultPaymentMethodId ? String(subscriptionObj.defaultPaymentMethodId) : null);
-  const cards = buildCardsWithDefault(subscriptionObj.cards as any, stripeDefaultPaymentMethodId);
+  const mergedCards = dedupeCardsByPaymentMethod([
+    ...refreshed.cards,
+    ...knownCards,
+  ]);
+  const cards = buildCardsWithDefault(mergedCards, stripeDefaultPaymentMethodId);
 
   if (
     stripeDefaultPaymentMethodId &&
@@ -488,6 +752,12 @@ export const getSubscriptionById = async (userId: string, subscriptionId: string
     await BillingSubscription.updateOne(
       { _id: subscriptionObj._id },
       { $set: { defaultPaymentMethodId: stripeDefaultPaymentMethodId } }
+    );
+  }
+  if (mergedCards.length > normalizeCards(subscriptionObj.cards as any).length) {
+    await BillingSubscription.updateOne(
+      { _id: subscriptionObj._id },
+      { $set: { cards: mergedCards } }
     );
   }
 

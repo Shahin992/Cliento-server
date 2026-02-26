@@ -269,10 +269,20 @@ const getOrCreateStripeCustomerIdForUser = async (userId: string, userEmail?: st
     return existingCustomerId;
   }
 
-  const email = userEmail ?? (await User.findById(userId).select('email'))?.email ?? null;
+  const userProfile = await User.findById(userId).select(
+    'email fullName companyName role teamId'
+  );
+  const email = userEmail ?? userProfile?.email ?? null;
   const customer = await createStripeCustomer({
     userId,
     email,
+    fullName: userProfile?.fullName ?? null,
+    companyName: userProfile?.companyName ?? null,
+    role: userProfile?.role ?? null,
+    teamId:
+      userProfile?.teamId === null || userProfile?.teamId === undefined
+        ? null
+        : String(userProfile.teamId),
   });
 
   const customerId = String(customer.id || '').trim();
@@ -308,6 +318,7 @@ export const createCheckoutSessionForPackage = async (payload: CreateCheckoutSes
 
   try {
     const customerId = await getOrCreateStripeCustomerIdForUser(payload.userId, payload.userEmail);
+    const userProfile = await User.findById(payload.userId).select('fullName companyName role teamId email');
     const session = await createStripeCheckoutSession({
       stripePriceId: packageDoc.price.stripePriceId,
       packageId: String(packageDoc._id),
@@ -318,7 +329,14 @@ export const createCheckoutSessionForPackage = async (payload: CreateCheckoutSes
       hasTrial: packageDoc.hasTrial,
       trialPeriodDays: packageDoc.trialPeriodDays,
       userId: payload.userId,
-      userEmail: payload.userEmail ?? null,
+      userEmail: payload.userEmail ?? userProfile?.email ?? null,
+      userFullName: userProfile?.fullName ?? null,
+      userCompanyName: userProfile?.companyName ?? null,
+      userRole: userProfile?.role ?? null,
+      userTeamId:
+        userProfile?.teamId === null || userProfile?.teamId === undefined
+          ? null
+          : String(userProfile.teamId),
       customerId,
     });
 
