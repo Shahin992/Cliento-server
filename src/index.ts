@@ -13,12 +13,14 @@ import taskRoutes from '../src/modules/tasks/task.route';
 import googleMailRoutes from '../src/modules/mail/google.route';
 import packageRoutes from '../src/modules/billing/package.route';
 import subscriptionRoutes from '../src/modules/subscription/subscription.route';
+import { stripeWebhookHandler } from '../src/modules/billing/stripeWebhook.controller';
 import { connectDB } from './config/db';
 import path from 'path';
 const express = require('express');
 const cors = require('cors');
 const PORT = process.env.PORT || 8000;
 const app = express();
+app.post('/api/webhooks/stripe', express.raw({ type: 'application/json' }), stripeWebhookHandler);
 app.use(express.json());
 const allowedOrigins = new Set([
     "http://localhost:5173",

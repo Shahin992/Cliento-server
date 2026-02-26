@@ -16,14 +16,30 @@ const PACKAGE_ACCESS_ROLES = ['SUPER_ADMIN', 'OWNER', 'ADMIN', 'MEMBER'];
 /**
  * @swagger
  * /api/packages/public:
- *   get:
+ *   post:
  *     tags:
  *       - Packages
- *     summary: List active billing packages with buy links (public)
+ *     summary: List active billing packages with optional filters (public)
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               planType:
+ *                 type: string
+ *                 nullable: true
+ *                 enum: [trial, paid]
+ *               billingCycle:
+ *                 type: string
+ *                 nullable: true
+ *                 enum: [monthly, yearly]
  *     responses:
  *       200:
  *         description: Billing packages fetched successfully
  */
+router.post('/public', listPublicBillingPackagesHandler);
 router.get('/public', listPublicBillingPackagesHandler);
 
 /**

@@ -18,6 +18,33 @@ export interface ISubscriptionCard {
   expYear: number;
 }
 
+export interface ISubscriptionTransactionCard {
+  paymentMethodId?: string | null;
+  brand?: string | null;
+  last4?: string | null;
+  expMonth?: number | null;
+  expYear?: number | null;
+}
+
+export interface ISubscriptionTransaction {
+  stripeCustomerId: string;
+  stripeSubscriptionId?: string | null;
+  stripeInvoiceId: string;
+  stripePaymentIntentId?: string | null;
+  stripeChargeId?: string | null;
+  eventId?: string | null;
+  invoiceNumber?: string | null;
+  status?: string | null;
+  billingReason?: string | null;
+  currency?: string | null;
+  amountPaid?: number | null;
+  amountDue?: number | null;
+  hostedInvoiceUrl?: string | null;
+  invoicePdfUrl?: string | null;
+  invoiceCreatedAt?: Date | null;
+  card?: ISubscriptionTransactionCard | null;
+}
+
 export interface IBillingSubscription extends Document {
   userId: Types.ObjectId;
   packageId: Types.ObjectId;
@@ -36,6 +63,7 @@ export interface IBillingSubscription extends Document {
   trialEnd?: Date | null;
   defaultPaymentMethodId?: string | null;
   cards?: ISubscriptionCard[];
+  transactions?: ISubscriptionTransaction[];
   latestInvoiceId?: string | null;
   latestEventId?: string | null;
   isCurrent: boolean;

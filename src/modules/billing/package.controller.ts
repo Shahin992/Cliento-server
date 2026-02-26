@@ -50,6 +50,10 @@ const stripeCheckoutSessionIdSchema = z
 const createCheckoutSessionBodySchema = z.object({
   packageId: objectIdSchema,
 });
+const listPublicPackagesBodySchema = z.object({
+  planType: z.enum(['trial', 'paid']).nullable().optional(),
+  billingCycle: z.enum(['monthly', 'yearly']).nullable().optional(),
+});
 
 const createPackageSchema = z.object({
   code: z
@@ -328,9 +332,13 @@ export const deleteBillingPackageHandler = async (req: Request, res: Response) =
   }
 };
 
-export const listPublicBillingPackagesHandler = async (_req: Request, res: Response) => {
+export const listPublicBillingPackagesHandler = async (req: Request, res: Response) => {
   try {
-    const result = await listPublicBillingPackages();
+    const parsed = listPublicPackagesBodySchema.parse(req.body ?? {});
+    const result = await listPublicBillingPackages({
+      planType: parsed.planType ?? null,
+      billingCycle: parsed.billingCycle ?? null,
+    });
     return sendResponse(res, {
       success: true,
       statusCode: 200,
@@ -338,6 +346,15 @@ export const listPublicBillingPackagesHandler = async (_req: Request, res: Respo
       data: result,
     });
   } catch (error) {
+    if (error instanceof ZodError) {
+      return sendError(res, {
+        success: false,
+        statusCode: 400,
+        message: 'Validation failed',
+        details: error.errors.map((e) => `${e.path.join('.')}: ${e.message}`).join(', '),
+      });
+    }
+
     return sendError(res, {
       success: false,
       statusCode: 500,

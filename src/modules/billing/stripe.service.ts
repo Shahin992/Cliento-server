@@ -1,4 +1,5 @@
 import { BillingCurrency, BillingCycle, IPackagePriceInput } from './package.interface';
+import crypto from 'crypto';
 
 type StripeInterval = 'month' | 'year';
 
@@ -345,6 +346,40 @@ export const retrieveStripeSubscription = async (subscriptionId: string) => {
   return getFromStripe(`/v1/subscriptions/${subscriptionId}`, query);
 };
 
+export const retrieveStripeInvoice = async (invoiceId: string) => {
+  const query = new URLSearchParams();
+  query.append('expand[]', 'payment_intent');
+  query.append('expand[]', 'payment_intent.payment_method');
+  query.append('expand[]', 'charge');
+  query.append('expand[]', 'lines');
+  query.append('expand[]', 'lines.data');
+  return getFromStripe(`/v1/invoices/${invoiceId}`, query);
+};
+
+export const listStripeInvoicesByCustomer = async (
+  customerId: string,
+  limit = 100,
+  startingAfter?: string | null
+) => {
+  const query = new URLSearchParams();
+  query.append('customer', customerId);
+  query.append('limit', String(limit));
+  query.append('expand[]', 'data.payment_intent');
+  query.append('expand[]', 'data.payment_intent.payment_method');
+  query.append('expand[]', 'data.charge');
+  query.append('expand[]', 'data.lines');
+  query.append('expand[]', 'data.lines.data');
+  if (startingAfter) {
+    query.append('starting_after', startingAfter);
+  }
+
+  const result = await getFromStripe('/v1/invoices', query);
+  return {
+    data: Array.isArray(result?.data) ? result.data : [],
+    hasMore: Boolean(result?.has_more),
+  };
+};
+
 export const createStripeCustomer = async (payload: {
   email?: string | null;
   userId: string;
@@ -414,6 +449,63 @@ export const setStripeSubscriptionDefaultPaymentMethod = async (
 
 export const cancelStripeSubscriptionImmediately = async (subscriptionId: string) => {
   return deleteFromStripe(`/v1/subscriptions/${subscriptionId}`);
+};
+
+export const verifyStripeWebhookEvent = (
+  rawPayload: Buffer,
+  signatureHeader?: string | null,
+  toleranceSeconds = 300
+) => {
+  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET?.trim();
+  if (!webhookSecret) {
+    throw new Error('Missing STRIPE_WEBHOOK_SECRET in environment.');
+  }
+
+  const header = String(signatureHeader || '').trim();
+  if (!header) {
+    throw new Error('Missing Stripe-Signature header.');
+  }
+
+  const parts = header.split(',').map((part) => part.trim());
+  const timestampPart = parts.find((part) => part.startsWith('t='));
+  const signatureParts = parts
+    .filter((part) => part.startsWith('v1='))
+    .map((part) => part.slice(3))
+    .filter(Boolean);
+
+  if (!timestampPart || signatureParts.length === 0) {
+    throw new Error('Invalid Stripe-Signature header format.');
+  }
+
+  const timestamp = Number(timestampPart.slice(2));
+  if (!Number.isFinite(timestamp) || timestamp <= 0) {
+    throw new Error('Invalid Stripe-Signature timestamp.');
+  }
+
+  const now = Math.floor(Date.now() / 1000);
+  if (Math.abs(now - timestamp) > toleranceSeconds) {
+    throw new Error('Stripe webhook signature timestamp is outside tolerance.');
+  }
+
+  const payload = rawPayload.toString('utf8');
+  const signedPayload = `${timestamp}.${payload}`;
+  const expectedSignature = crypto
+    .createHmac('sha256', webhookSecret)
+    .update(signedPayload, 'utf8')
+    .digest('hex');
+
+  const expected = Buffer.from(expectedSignature, 'utf8');
+  const isValid = signatureParts.some((signature) => {
+    const actual = Buffer.from(signature, 'utf8');
+    if (actual.length !== expected.length) return false;
+    return crypto.timingSafeEqual(actual, expected);
+  });
+
+  if (!isValid) {
+    throw new Error('Invalid Stripe webhook signature.');
+  }
+
+  return JSON.parse(payload) as Record<string, any>;
 };
 
 export { StripeIntegrationError };

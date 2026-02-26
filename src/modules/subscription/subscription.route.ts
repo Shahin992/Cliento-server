@@ -35,11 +35,11 @@ router.get('/me/current', authenticate, authorize(SUBSCRIPTION_ACCESS_ROLES), ge
 
 /**
  * @swagger
- * /api/subscriptions/me/history:
+ * /api/subscriptions/me/transactions:
  *   get:
  *     tags:
  *       - Subscriptions
- *     summary: List subscription history for authenticated user
+ *     summary: List Stripe invoice transactions for authenticated user
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -55,10 +55,11 @@ router.get('/me/current', authenticate, authorize(SUBSCRIPTION_ACCESS_ROLES), ge
  *           default: 10
  *     responses:
  *       200:
- *         description: Subscriptions fetched successfully
+ *         description: Transactions fetched successfully
  *       401:
  *         description: Unauthorized
  */
+router.get('/me/transactions', authenticate, authorize(SUBSCRIPTION_ACCESS_ROLES), listSubscriptionsHandler);
 router.get('/me/history', authenticate, authorize(SUBSCRIPTION_ACCESS_ROLES), listSubscriptionsHandler);
 
 /**

@@ -8,6 +8,8 @@ import {
   createStripeCustomer,
   createStripeSetupIntent,
   detachStripePaymentMethodFromCustomer,
+  listStripeInvoicesByCustomer,
+  retrieveStripeInvoice,
   retrieveStripeSubscription,
   retrieveStripePaymentMethod,
   setStripeCustomerDefaultPaymentMethod,
@@ -393,6 +395,195 @@ export const syncSubscriptionFromCheckoutSession = async (userId: string, sessio
   }
 
   return { status: 'ok' as const, subscription };
+};
+
+const upsertTransactionFromStripeInvoice = async (
+  invoice: Record<string, any>,
+  eventId?: string | null
+) => {
+  const stripeInvoiceId = String(invoice?.id || '').trim();
+  if (!stripeInvoiceId) return { status: 'ignored' as const };
+
+  const stripeSubscriptionId =
+    typeof invoice?.subscription === 'string'
+      ? invoice.subscription
+      : typeof invoice?.subscription?.id === 'string'
+        ? invoice.subscription.id
+        : '';
+  const stripeCustomerId =
+    typeof invoice?.customer === 'string'
+      ? invoice.customer
+      : typeof invoice?.customer?.id === 'string'
+        ? invoice.customer.id
+        : '';
+
+  let subscriptionDoc = null as any;
+  if (stripeSubscriptionId) {
+    subscriptionDoc = await BillingSubscription.findOne({
+      stripeSubscriptionId: String(stripeSubscriptionId),
+    }).select('_id userId stripeCustomerId');
+  }
+  if (!subscriptionDoc && stripeCustomerId) {
+    subscriptionDoc = await BillingSubscription.findOne({
+      stripeCustomerId: String(stripeCustomerId),
+    })
+      .sort({ updatedAt: -1 })
+      .select('_id userId stripeCustomerId');
+  }
+
+  if (!subscriptionDoc) {
+    return { status: 'not_mapped' as const };
+  }
+
+  const paymentIntent =
+    invoice?.payment_intent && typeof invoice.payment_intent === 'object'
+      ? invoice.payment_intent
+      : null;
+  const paymentMethod =
+    paymentIntent?.payment_method && typeof paymentIntent.payment_method === 'object'
+      ? paymentIntent.payment_method
+      : null;
+  const charge =
+    invoice?.charge && typeof invoice.charge === 'object'
+      ? invoice.charge
+      : null;
+  const card = paymentMethod?.card
+    ? {
+        paymentMethodId: typeof paymentMethod.id === 'string' ? paymentMethod.id : null,
+        brand: paymentMethod.card?.brand ?? null,
+        last4: paymentMethod.card?.last4 ?? null,
+        expMonth: paymentMethod.card?.exp_month ?? null,
+        expYear: paymentMethod.card?.exp_year ?? null,
+      }
+    : null;
+
+  const transactionPayload = {
+    stripeCustomerId: stripeCustomerId || String(subscriptionDoc.stripeCustomerId || ''),
+    stripeSubscriptionId: stripeSubscriptionId || null,
+    stripeInvoiceId,
+    stripePaymentIntentId: typeof paymentIntent?.id === 'string' ? paymentIntent.id : null,
+    stripeChargeId:
+      typeof charge?.id === 'string'
+        ? charge.id
+        : typeof invoice?.charge === 'string'
+          ? invoice.charge
+          : null,
+    eventId: eventId ? String(eventId) : null,
+    invoiceNumber: typeof invoice?.number === 'string' ? invoice.number : null,
+    status: typeof invoice?.status === 'string' ? invoice.status : null,
+    billingReason: typeof invoice?.billing_reason === 'string' ? invoice.billing_reason : null,
+    currency: typeof invoice?.currency === 'string' ? invoice.currency : null,
+    amountPaid: typeof invoice?.amount_paid === 'number' ? invoice.amount_paid : null,
+    amountDue: typeof invoice?.amount_due === 'number' ? invoice.amount_due : null,
+    hostedInvoiceUrl: typeof invoice?.hosted_invoice_url === 'string' ? invoice.hosted_invoice_url : null,
+    invoicePdfUrl: typeof invoice?.invoice_pdf === 'string' ? invoice.invoice_pdf : null,
+    invoiceCreatedAt: typeof invoice?.created === 'number' ? new Date(invoice.created * 1000) : null,
+    card,
+  };
+
+  const existing = await BillingSubscription.findOne({
+    _id: subscriptionDoc._id,
+    'transactions.stripeInvoiceId': stripeInvoiceId,
+  }).select('_id');
+
+  if (existing) {
+    await BillingSubscription.updateOne(
+      { _id: subscriptionDoc._id, 'transactions.stripeInvoiceId': stripeInvoiceId },
+      {
+        $set: {
+          'transactions.$': transactionPayload,
+          ...(eventId ? { latestEventId: String(eventId) } : {}),
+          latestInvoiceId: stripeInvoiceId,
+        },
+      }
+    );
+  } else {
+    await BillingSubscription.updateOne(
+      { _id: subscriptionDoc._id },
+      {
+        $push: { transactions: transactionPayload },
+        $set: {
+          ...(eventId ? { latestEventId: String(eventId) } : {}),
+          latestInvoiceId: stripeInvoiceId,
+        },
+      }
+    );
+  }
+
+  return { status: 'ok' as const };
+};
+
+const backfillTransactionsForUserFromStripe = async (userId: string) => {
+  const subscriptions = await BillingSubscription.find({ userId }).select(
+    '_id stripeCustomerId transactions'
+  );
+
+  const customerIds = Array.from(
+    new Set(
+      subscriptions
+        .map((subscription) => String(subscription.stripeCustomerId || '').trim())
+        .filter(Boolean)
+    )
+  );
+  if (!customerIds.length) return;
+
+  for (const customerId of customerIds) {
+    let startingAfter: string | null = null;
+    do {
+      const chunk = await listStripeInvoicesByCustomer(customerId, 100, startingAfter);
+      for (const invoice of chunk.data) {
+        await upsertTransactionFromStripeInvoice(invoice);
+      }
+      const lastInvoice = chunk.data.length ? chunk.data[chunk.data.length - 1] : null;
+      startingAfter = chunk.hasMore && lastInvoice?.id ? String(lastInvoice.id) : null;
+    } while (startingAfter);
+  }
+};
+
+export const handleStripeWebhookEvent = async (event: Record<string, any>) => {
+  const eventType = String(event?.type || '').trim();
+  if (!eventType) {
+    return { status: 'ignored' as const };
+  }
+
+  if (
+    eventType !== 'invoice.paid' &&
+    eventType !== 'invoice.payment_failed' &&
+    eventType !== 'invoice.finalized' &&
+    eventType !== 'invoice.voided' &&
+    eventType !== 'invoice.marked_uncollectible'
+  ) {
+    return { status: 'ignored' as const };
+  }
+
+  const eventId = String(event?.id || '').trim();
+  if (eventId) {
+    const existingEvent = await BillingSubscription.findOne({
+      'transactions.eventId': eventId,
+    }).select('_id');
+    if (existingEvent) {
+      return { status: 'duplicate_event' as const };
+    }
+  }
+
+  const eventInvoice = event?.data?.object ?? {};
+  const invoiceId = String(eventInvoice?.id || '').trim();
+  if (!invoiceId) {
+    return { status: 'ignored' as const };
+  }
+
+  try {
+    const invoice = await retrieveStripeInvoice(invoiceId);
+    return upsertTransactionFromStripeInvoice(invoice, eventId || null);
+  } catch (error) {
+    if (error instanceof StripeIntegrationError) {
+      if (error.status === 'missing_secret_key') {
+        return { status: 'stripe_not_configured' as const, message: error.message };
+      }
+      return { status: 'stripe_error' as const, message: error.message };
+    }
+    throw error;
+  }
 };
 
 const refreshSubscriptionSnapshotFromStripe = async (subscriptionObj: any) => {
@@ -962,35 +1153,80 @@ export const getSubscriptionById = async (userId: string, subscriptionId: string
 export const listSubscriptions = async (userId: string, query: ListSubscriptionsQuery) => {
   const skip = (query.page - 1) * query.limit;
 
-  const [subscriptions, total] = await Promise.all([
-    BillingSubscription.find({ userId })
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(query.limit)
-      .populate({
-        path: 'packageId',
-        select: '_id code name billingCycle price isActive',
-      }),
-    BillingSubscription.countDocuments({ userId }),
-  ]);
+  let subscriptions = await BillingSubscription.find({ userId })
+    .sort({ updatedAt: -1 })
+    .populate({
+      path: 'packageId',
+      select: '_id code name billingCycle price isActive',
+    });
 
-  const totalPages = Math.ceil(total / query.limit);
+  const hasAnyTransactions = subscriptions.some((subscription: any) =>
+    Array.isArray(subscription.transactions) && subscription.transactions.length > 0
+  );
+  if (!hasAnyTransactions && subscriptions.length > 0) {
+    try {
+      await backfillTransactionsForUserFromStripe(userId);
+      subscriptions = await BillingSubscription.find({ userId })
+        .sort({ updatedAt: -1 })
+        .populate({
+          path: 'packageId',
+          select: '_id code name billingCycle price isActive',
+        });
+    } catch (error) {
+      if (!(error instanceof StripeIntegrationError)) {
+        throw error;
+      }
+    }
+  }
 
-  const mappedSubscriptions = subscriptions.map((subscription) => {
-    const subscriptionObj = subscription.toObject();
-    const defaultPaymentMethodId = subscriptionObj.defaultPaymentMethodId
-      ? String(subscriptionObj.defaultPaymentMethodId)
-      : null;
-    const cards = buildCardsWithDefault(subscriptionObj.cards as any, defaultPaymentMethodId);
+  const flattenedTransactions = subscriptions.flatMap((subscription) => {
+    const subscriptionObj = subscription.toObject() as any;
+    const transactions = Array.isArray(subscriptionObj.transactions)
+      ? subscriptionObj.transactions
+      : [];
 
-    return {
-      ...subscriptionObj,
-      cards,
-    };
+    return transactions.map((transaction: any) => ({
+      invoice: {
+        id: transaction.stripeInvoiceId || null,
+        number: transaction.invoiceNumber || null,
+        status: transaction.status || null,
+        currency: transaction.currency || null,
+        amountPaid: typeof transaction.amountPaid === 'number' ? transaction.amountPaid : null,
+        amountDue: typeof transaction.amountDue === 'number' ? transaction.amountDue : null,
+        hostedInvoiceUrl: transaction.hostedInvoiceUrl || null,
+        invoicePdfUrl: transaction.invoicePdfUrl || null,
+        createdAt: transaction.invoiceCreatedAt || null,
+        stripeCustomerId: transaction.stripeCustomerId || null,
+        stripeSubscriptionId: transaction.stripeSubscriptionId || null,
+        stripePaymentIntentId: transaction.stripePaymentIntentId || null,
+      },
+      card: transaction.card || null,
+      subscription: {
+        _id: subscriptionObj._id,
+        packageId: subscriptionObj.packageId,
+        stripeSubscriptionId: subscriptionObj.stripeSubscriptionId,
+        status: subscriptionObj.status,
+        billingCycle: subscriptionObj.billingCycle,
+        amount: subscriptionObj.amount,
+        currency: subscriptionObj.currency,
+        currentPeriodStart: subscriptionObj.currentPeriodStart,
+        currentPeriodEnd: subscriptionObj.currentPeriodEnd,
+        isCurrent: subscriptionObj.isCurrent,
+      },
+    }));
   });
 
+  flattenedTransactions.sort(
+    (a, b) =>
+      new Date(b.invoice.createdAt || 0).getTime() - new Date(a.invoice.createdAt || 0).getTime()
+  );
+
+  const total = flattenedTransactions.length;
+  const totalPages = Math.ceil(total / query.limit);
+  const transactions = flattenedTransactions.slice(skip, skip + query.limit);
+
   return {
-    subscriptions: mappedSubscriptions,
+    transactions,
     pagination: {
       page: query.page,
       limit: query.limit,

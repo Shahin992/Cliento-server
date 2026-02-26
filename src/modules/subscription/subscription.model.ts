@@ -41,6 +41,39 @@ const cardSchema = new Schema(
   { _id: false, versionKey: false }
 );
 
+const transactionCardSchema = new Schema(
+  {
+    paymentMethodId: { type: String, trim: true, default: null },
+    brand: { type: String, trim: true, lowercase: true, default: null },
+    last4: { type: String, trim: true, default: null },
+    expMonth: { type: Number, default: null },
+    expYear: { type: Number, default: null },
+  },
+  { _id: false, versionKey: false }
+);
+
+const transactionSchema = new Schema(
+  {
+    stripeCustomerId: { type: String, required: true, trim: true },
+    stripeSubscriptionId: { type: String, default: null, trim: true },
+    stripeInvoiceId: { type: String, required: true, trim: true },
+    stripePaymentIntentId: { type: String, default: null, trim: true },
+    stripeChargeId: { type: String, default: null, trim: true },
+    eventId: { type: String, default: null, trim: true },
+    invoiceNumber: { type: String, default: null, trim: true },
+    status: { type: String, default: null, trim: true },
+    billingReason: { type: String, default: null, trim: true },
+    currency: { type: String, default: null, trim: true },
+    amountPaid: { type: Number, default: null },
+    amountDue: { type: Number, default: null },
+    hostedInvoiceUrl: { type: String, default: null, trim: true },
+    invoicePdfUrl: { type: String, default: null, trim: true },
+    invoiceCreatedAt: { type: Date, default: null },
+    card: { type: transactionCardSchema, default: null },
+  },
+  { _id: false, versionKey: false }
+);
+
 const billingSubscriptionSchema = new Schema<IBillingSubscription>(
   {
     userId: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
@@ -90,6 +123,7 @@ const billingSubscriptionSchema = new Schema<IBillingSubscription>(
       index: true,
     },
     cards: { type: [cardSchema], default: [] },
+    transactions: { type: [transactionSchema], default: [] },
     latestInvoiceId: { type: String, default: null, trim: true, maxlength: TEXT_LENGTH.latestInvoiceId },
     latestEventId: { type: String, default: null, trim: true, maxlength: TEXT_LENGTH.latestEventId },
     isCurrent: { type: Boolean, default: true, index: true },

@@ -226,8 +226,19 @@ export const deleteBillingPackage = async (packageId: string) => {
   return { status: 'ok' as const, package: packageDoc };
 };
 
-export const listPublicBillingPackages = async () => {
-  const packages = await BillingPackage.find({ isActive: true })
+export const listPublicBillingPackages = async (filters?: {
+  planType?: 'trial' | 'paid' | null;
+  billingCycle?: 'monthly' | 'yearly' | null;
+}) => {
+  const query: Record<string, any> = { isActive: true };
+  if (filters?.billingCycle) {
+    query.billingCycle = filters.billingCycle;
+  }
+  if (filters?.planType === 'trial') {
+    query.hasTrial = true;
+  }
+
+  const packages = await BillingPackage.find(query)
     .sort({ isDefault: -1, createdAt: 1 })
     .select({
       _id: 1,

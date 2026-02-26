@@ -144,7 +144,7 @@ export const listSubscriptionsHandler = async (req: Request, res: Response) => {
     return sendResponse(res, {
       success: true,
       statusCode: 200,
-      message: 'Subscriptions fetched successfully',
+      message: 'Transactions fetched successfully',
       data: result,
     });
   } catch (error) {
@@ -160,7 +160,7 @@ export const listSubscriptionsHandler = async (req: Request, res: Response) => {
     return sendError(res, {
       success: false,
       statusCode: 500,
-      message: 'Failed to fetch subscriptions',
+      message: 'Failed to fetch transactions',
       details: (error as Error).message,
     });
   }
