@@ -4,9 +4,11 @@ import { sendError, sendResponse } from '../../../Utils/response';
 import {
   attachPaymentMethodToCurrentSubscription,
   createSetupIntentForCurrentSubscription,
+  deletePaymentMethodFromCurrentSubscription,
   getCurrentSubscription,
   getSubscriptionById,
   listSubscriptions,
+  setDefaultPaymentMethodForCurrentSubscription,
   syncSubscriptionFromCheckoutSession,
 } from './subscription.service';
 
@@ -19,6 +21,12 @@ const syncCheckoutSessionBodySchema = z.object({
   sessionId: stripeCheckoutSessionIdSchema,
 });
 const attachPaymentMethodBodySchema = z.object({
+  paymentMethodId: z
+    .string()
+    .trim()
+    .regex(/^pm_[A-Za-z0-9]+$/, 'Invalid Stripe payment method id'),
+});
+const paymentMethodIdBodySchema = z.object({
   paymentMethodId: z
     .string()
     .trim()
@@ -284,6 +292,173 @@ export const attachPaymentMethodToCurrentSubscriptionHandler = async (req: Reque
       success: false,
       statusCode: 500,
       message: 'Failed to attach payment method',
+      details: (error as Error).message,
+    });
+  }
+};
+
+export const setDefaultPaymentMethodForCurrentSubscriptionHandler = async (req: Request, res: Response) => {
+  try {
+    const userId = getUserIdFromReq(req);
+    if (!userId) {
+      return sendError(res, {
+        success: false,
+        statusCode: 401,
+        message: 'You have no access to this route',
+      });
+    }
+
+    const parsedBody = paymentMethodIdBodySchema.parse(req.body);
+    const result = await setDefaultPaymentMethodForCurrentSubscription(
+      userId,
+      parsedBody.paymentMethodId
+    );
+
+    if (result.status === 'not_found') {
+      return sendError(res, {
+        success: false,
+        statusCode: 404,
+        message: 'Current subscription not found',
+      });
+    }
+    if (result.status === 'customer_id_missing') {
+      return sendError(res, {
+        success: false,
+        statusCode: 400,
+        message: 'Subscription has no Stripe customer id',
+      });
+    }
+    if (result.status === 'card_not_found') {
+      return sendError(res, {
+        success: false,
+        statusCode: 404,
+        message: 'Card not found in current subscription',
+      });
+    }
+    if (result.status === 'stripe_not_configured') {
+      return sendError(res, {
+        success: false,
+        statusCode: 500,
+        message: 'Stripe is not configured',
+        details: result.message,
+      });
+    }
+    if (result.status === 'stripe_error') {
+      return sendError(res, {
+        success: false,
+        statusCode: 502,
+        message: 'Stripe request failed',
+        details: result.message,
+      });
+    }
+
+    return sendResponse(res, {
+      success: true,
+      statusCode: 200,
+      message: 'Default payment method updated successfully',
+      data: result.data,
+    });
+  } catch (error) {
+    if (error instanceof ZodError) {
+      return sendError(res, {
+        success: false,
+        statusCode: 400,
+        message: 'Validation failed',
+        details: error.errors.map((e) => `${e.path.join('.')}: ${e.message}`).join(', '),
+      });
+    }
+
+    return sendError(res, {
+      success: false,
+      statusCode: 500,
+      message: 'Failed to update default payment method',
+      details: (error as Error).message,
+    });
+  }
+};
+
+export const deletePaymentMethodFromCurrentSubscriptionHandler = async (req: Request, res: Response) => {
+  try {
+    const userId = getUserIdFromReq(req);
+    if (!userId) {
+      return sendError(res, {
+        success: false,
+        statusCode: 401,
+        message: 'You have no access to this route',
+      });
+    }
+
+    const parsedBody = paymentMethodIdBodySchema.parse(req.body);
+    const result = await deletePaymentMethodFromCurrentSubscription(
+      userId,
+      parsedBody.paymentMethodId
+    );
+
+    if (result.status === 'not_found') {
+      return sendError(res, {
+        success: false,
+        statusCode: 404,
+        message: 'Current subscription not found',
+      });
+    }
+    if (result.status === 'customer_id_missing') {
+      return sendError(res, {
+        success: false,
+        statusCode: 400,
+        message: 'Subscription has no Stripe customer id',
+      });
+    }
+    if (result.status === 'card_not_found') {
+      return sendError(res, {
+        success: false,
+        statusCode: 404,
+        message: 'Card not found in current subscription',
+      });
+    }
+    if (result.status === 'cannot_delete_last_card') {
+      return sendError(res, {
+        success: false,
+        statusCode: 400,
+        message: 'Cannot delete the last saved card',
+      });
+    }
+    if (result.status === 'stripe_not_configured') {
+      return sendError(res, {
+        success: false,
+        statusCode: 500,
+        message: 'Stripe is not configured',
+        details: result.message,
+      });
+    }
+    if (result.status === 'stripe_error') {
+      return sendError(res, {
+        success: false,
+        statusCode: 502,
+        message: 'Stripe request failed',
+        details: result.message,
+      });
+    }
+
+    return sendResponse(res, {
+      success: true,
+      statusCode: 200,
+      message: 'Payment method deleted successfully',
+      data: result.data,
+    });
+  } catch (error) {
+    if (error instanceof ZodError) {
+      return sendError(res, {
+        success: false,
+        statusCode: 400,
+        message: 'Validation failed',
+        details: error.errors.map((e) => `${e.path.join('.')}: ${e.message}`).join(', '),
+      });
+    }
+
+    return sendError(res, {
+      success: false,
+      statusCode: 500,
+      message: 'Failed to delete payment method',
       details: (error as Error).message,
     });
   }

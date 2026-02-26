@@ -385,6 +385,11 @@ export const attachStripePaymentMethodToCustomer = async (
   return postToStripe(`/v1/payment_methods/${paymentMethodId}/attach`, body);
 };
 
+export const detachStripePaymentMethodFromCustomer = async (paymentMethodId: string) => {
+  const body = new URLSearchParams();
+  return postToStripe(`/v1/payment_methods/${paymentMethodId}/detach`, body);
+};
+
 export const retrieveStripePaymentMethod = async (paymentMethodId: string) => {
   return getFromStripe(`/v1/payment_methods/${paymentMethodId}`);
 };
