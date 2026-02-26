@@ -4,6 +4,7 @@ import { BillingPackage } from '../billing/package.model';
 import { getStripeCheckoutSessionSummary } from '../billing/package.service';
 import {
   attachStripePaymentMethodToCustomer,
+  cancelStripeSubscriptionImmediately,
   createStripeCustomer,
   createStripeSetupIntent,
   retrieveStripeSubscription,
@@ -125,19 +126,28 @@ const dedupeCardsByPaymentMethod = (
   return unique;
 };
 
-const getKnownCardsForStripeCustomer = async (userId: string, stripeCustomerId?: string | null) => {
-  const customerId = String(stripeCustomerId || '').trim();
-  if (!customerId) return [];
+const getKnownCardsForUser = async (userId: string, preferredStripeCustomerId?: string | null) => {
+  const preferredCustomerId = String(preferredStripeCustomerId || '').trim();
 
-  const subscriptions = await BillingSubscription.find({
-    userId,
-    stripeCustomerId: customerId,
-  })
+  const subscriptions = await BillingSubscription.find({ userId })
     .sort({ updatedAt: -1 })
-    .select('cards');
+    .select('cards stripeCustomerId');
+
+  if (!preferredCustomerId) {
+    return dedupeCardsByPaymentMethod(
+      subscriptions.flatMap((item) => normalizeCards(item.cards as any))
+    );
+  }
+
+  const sameCustomer = subscriptions.filter(
+    (item) => String(item.stripeCustomerId || '').trim() === preferredCustomerId
+  );
+  const otherCustomers = subscriptions.filter(
+    (item) => String(item.stripeCustomerId || '').trim() !== preferredCustomerId
+  );
 
   return dedupeCardsByPaymentMethod(
-    subscriptions.flatMap((item) => normalizeCards(item.cards as any))
+    [...sameCustomer, ...otherCustomers].flatMap((item) => normalizeCards(item.cards as any))
   );
 };
 
@@ -203,7 +213,10 @@ export const syncSubscriptionFromCheckoutSession = async (userId: string, sessio
     return { status: 'price_id_missing' as const };
   }
   const sessionUserId = String(
-    session.subscriptionMetadata?.user_id || session.metadata?.user_id || ''
+    session.subscriptionMetadata?.user_id ||
+      session.metadata?.user_id ||
+      session.customerMetadata?.user_id ||
+      ''
   ).trim();
   if (sessionUserId && sessionUserId !== userId) {
     return { status: 'checkout_user_mismatch' as const };
@@ -265,16 +278,47 @@ export const syncSubscriptionFromCheckoutSession = async (userId: string, sessio
       }
     : null;
 
+  const previousActiveSubscriptions = await BillingSubscription.find({
+    userId,
+    stripeSubscriptionId: { $ne: session.subscriptionId },
+    status: { $in: ['incomplete', 'trialing', 'active', 'past_due', 'unpaid'] },
+  }).select('stripeSubscriptionId');
+
+  try {
+    await Promise.all(
+      previousActiveSubscriptions.map(async (item) => {
+        const previousStripeSubscriptionId = String(item.stripeSubscriptionId || '').trim();
+        if (!previousStripeSubscriptionId) return;
+        await cancelStripeSubscriptionImmediately(previousStripeSubscriptionId);
+      })
+    );
+  } catch (error) {
+    if (error instanceof StripeIntegrationError) {
+      if (error.status === 'missing_secret_key') {
+        return { status: 'stripe_not_configured' as const, message: error.message };
+      }
+      return { status: 'stripe_error' as const, message: error.message };
+    }
+    throw error;
+  }
+
   await BillingSubscription.updateMany(
-    { userId, isCurrent: true, stripeSubscriptionId: { $ne: session.subscriptionId } },
-    { $set: { isCurrent: false } }
+    { userId, stripeSubscriptionId: { $ne: session.subscriptionId } },
+    {
+      $set: {
+        isCurrent: false,
+        status: 'canceled',
+        cancelAtPeriodEnd: false,
+        canceledAt: new Date(),
+      },
+    }
   );
 
   const existingSubscription = await BillingSubscription.findOne({
     stripeSubscriptionId: session.subscriptionId,
   }).select('cards defaultPaymentMethodId');
   const existingCards = normalizeCards(existingSubscription?.cards);
-  const knownCards = await getKnownCardsForStripeCustomer(userId, session.customerId);
+  const knownCards = await getKnownCardsForUser(userId, session.customerId);
   const cards = dedupeCardsByPaymentMethod([
     ...(card ? [card] : []),
     ...existingCards,
@@ -676,7 +720,7 @@ export const getCurrentSubscription = async (userId: string) => {
   const baseSubscriptionObj = subscription.toObject();
   const refreshed = await refreshSubscriptionSnapshotFromStripe(baseSubscriptionObj);
   const subscriptionObj = refreshed.subscriptionObj;
-  const knownCards = await getKnownCardsForStripeCustomer(
+  const knownCards = await getKnownCardsForUser(
     String(subscriptionObj.userId),
     String(subscriptionObj.stripeCustomerId || '')
   );
@@ -731,7 +775,7 @@ export const getSubscriptionById = async (userId: string, subscriptionId: string
   const baseSubscriptionObj = subscription.toObject();
   const refreshed = await refreshSubscriptionSnapshotFromStripe(baseSubscriptionObj);
   const subscriptionObj = refreshed.subscriptionObj;
-  const knownCards = await getKnownCardsForStripeCustomer(
+  const knownCards = await getKnownCardsForUser(
     String(subscriptionObj.userId),
     String(subscriptionObj.stripeCustomerId || '')
   );

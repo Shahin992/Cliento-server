@@ -113,6 +113,26 @@ const getFromStripe = async (path: string, query?: URLSearchParams) => {
   return json as Record<string, any>;
 };
 
+const deleteFromStripe = async (path: string, query?: URLSearchParams) => {
+  const { secretKey, baseUrl } = getStripeConfig();
+  const suffix = query ? `?${query.toString()}` : '';
+
+  const response = await fetch(`${baseUrl}${path}${suffix}`, {
+    method: 'DELETE',
+    headers: {
+      Authorization: `Bearer ${secretKey}`,
+    },
+  });
+
+  const json = await response.json();
+  if (!response.ok) {
+    const message = json?.error?.message || 'Stripe API request failed.';
+    throw new StripeIntegrationError('stripe_api_error', message);
+  }
+
+  return json as Record<string, any>;
+};
+
 const createStripeProduct = async (payload: StripeCreateCatalogInput) => {
   const body = new URLSearchParams();
   body.append('name', payload.name);
@@ -293,6 +313,7 @@ export const deactivateStripeCatalog = rollbackStripeCatalog;
 
 export const retrieveStripeCheckoutSession = async (sessionId: string) => {
   const query = new URLSearchParams();
+  query.append('expand[]', 'customer');
   query.append('expand[]', 'subscription');
   query.append('expand[]', 'subscription.items');
   query.append('expand[]', 'subscription.items.data');
@@ -384,6 +405,10 @@ export const setStripeSubscriptionDefaultPaymentMethod = async (
   const body = new URLSearchParams();
   body.append('default_payment_method', paymentMethodId);
   return postToStripe(`/v1/subscriptions/${subscriptionId}`, body);
+};
+
+export const cancelStripeSubscriptionImmediately = async (subscriptionId: string) => {
+  return deleteFromStripe(`/v1/subscriptions/${subscriptionId}`);
 };
 
 export { StripeIntegrationError };

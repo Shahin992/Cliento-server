@@ -472,6 +472,10 @@ export const getStripeCheckoutSessionSummary = async (sessionId: string) => {
           typeof session.customer === 'string'
             ? session.customer
             : session.customer?.id ?? null,
+        customerMetadata:
+          session.customer && typeof session.customer === 'object'
+            ? session.customer.metadata ?? {}
+            : {},
         customerEmail: session.customer_details?.email ?? session.customer_email ?? null,
         metadata: session.metadata ?? {},
         subscriptionId:
