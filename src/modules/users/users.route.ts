@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { authenticate } from '../../middleware/authMiddlewares';
-import { getMyProfileHandler, updateProfileHandler, updateProfilePhotoHandler } from './user.controller';
+import { getMyProfileHandler, getTeamUsersHandler, updateProfileHandler, updateProfilePhotoHandler } from './user.controller';
 
 const router = Router();
 
@@ -22,6 +22,27 @@ const router = Router();
  *         description: User not found
  */
 router.get('/me', authenticate, getMyProfileHandler);
+
+/**
+ * @swagger
+ * /api/users/team-users:
+ *   get:
+ *     tags:
+ *       - Users
+ *     summary: Get users of my team with package user capacity
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Team users fetched successfully
+ *       400:
+ *         description: Team id missing for current user
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: User not found
+ */
+router.get('/team-users', authenticate, getTeamUsersHandler);
 
 /**
  * @swagger

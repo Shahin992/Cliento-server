@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs';
 import { User } from './user.model';
 import { RegisterUserInput } from './user.interface';
 import { PasswordResetOtp } from './passwordResetOtp.model';
+import { BillingSubscription } from '../subscription/subscription.model';
 
 type SigninInput = {
   email: string;
@@ -140,4 +141,98 @@ export const changePassword = async (userId: string, currentPassword: string, ne
 export const getMyProfile = async (userId: string) => {
   const user = await User.findById(userId);
   return user;
+};
+
+const ACTIVE_SUBSCRIPTION_STATUSES = ['trialing', 'active', 'past_due'] as const;
+
+type TeamUsersAuthContext = {
+  id: string;
+  role?: string | null;
+  teamId?: number | null;
+  ownerId?: string | null;
+  ownerInfo?: {
+    ownerId?: string | null;
+  } | null;
+};
+
+const resolveTeamUserLimit = async (ownerUserId: string, fallbackUserId: string) => {
+  const subscription =
+    (await BillingSubscription.findOne({
+      userId: ownerUserId,
+      isCurrent: true,
+      status: { $in: ACTIVE_SUBSCRIPTION_STATUSES },
+    })
+      .populate({
+        path: 'packageId',
+        select: '_id code name limits billingCycle',
+      })
+      .sort({ updatedAt: -1 })
+      .lean()) ||
+    (await BillingSubscription.findOne({
+      userId: fallbackUserId,
+      isCurrent: true,
+      status: { $in: ACTIVE_SUBSCRIPTION_STATUSES },
+    })
+      .populate({
+        path: 'packageId',
+        select: '_id code name limits billingCycle',
+      })
+      .sort({ updatedAt: -1 })
+      .lean());
+
+  if (!subscription) {
+    return null as number | null;
+  }
+
+  const packageDoc = (subscription as any).packageId || null;
+  return packageDoc?.limits?.users ?? null;
+};
+
+export const getTeamUsersWithPackageInfo = async (authUser: TeamUsersAuthContext | null | undefined) => {
+  if (!authUser?.id) {
+    return { status: 'user_not_found' as const };
+  }
+
+  if (authUser.teamId === null || authUser.teamId === undefined) {
+    return { status: 'team_id_missing' as const };
+  }
+
+  const teamId = Number(authUser.teamId);
+  const users = await User.find({ teamId })
+    .select(
+      '_id fullName email companyName role teamId ownerInfo profilePhoto phoneNumber location timeZone accessExpiresAt planType createdAt updatedAt'
+    )
+    .sort({ createdAt: -1 })
+    .lean();
+
+  let ownerUserId =
+    authUser.role === 'OWNER'
+      ? authUser.id
+      : authUser.ownerId
+        ? String(authUser.ownerId)
+        : authUser.ownerInfo?.ownerId
+          ? String(authUser.ownerInfo.ownerId)
+        : null;
+
+  if (!ownerUserId) {
+    const owner = await User.findOne({ teamId, role: 'OWNER' }).select('_id').lean();
+    ownerUserId = owner ? String(owner._id) : authUser.id;
+  }
+
+  const userLimit = await resolveTeamUserLimit(ownerUserId, authUser.id);
+  const usedUsers = users.length;
+  const remainingUsers =
+    userLimit === null ? null : Math.max(userLimit - usedUsers, 0);
+
+  return {
+    status: 'ok' as const,
+    data: {
+      totalAllowedUsers: userLimit,
+      usedUsers,
+      remainingUsers,
+      canCreateMoreUsers:
+        userLimit === null || remainingUsers === null ? null : remainingUsers > 0,
+      users,
+    },
+  };
 };

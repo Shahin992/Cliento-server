@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { randomInt } from 'crypto';
 import { z, ZodError } from 'zod';
-import { changePassword, createPasswordResetOtp, getMyProfile, loginUser, registerUser, resetPasswordWithOtp, updateProfile, updateProfilePhoto, verifyPasswordResetOtp } from './user.service';
+import { changePassword, createPasswordResetOtp, getMyProfile, getTeamUsersWithPackageInfo, loginUser, registerUser, resetPasswordWithOtp, updateProfile, updateProfilePhoto, verifyPasswordResetOtp } from './user.service';
 import { sendError, sendResponse } from '../../../Utils/response';
 import { canSendEmail, sendPasswordResetConfirmationEmail, sendPasswordResetOtpEmail, sendWelcomeEmail } from '../../config/email';
 
@@ -480,6 +480,49 @@ export const getMyProfileHandler = async (req: Request, res: Response) => {
       success: false,
       statusCode: 500,
       message: 'Failed to fetch profile',
+      details: (error as Error).message,
+    });
+  }
+};
+
+export const getTeamUsersHandler = async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).user?.id;
+    if (!userId) {
+      return sendError(res, {
+        success: false,
+        statusCode: 401,
+        message: 'You have no access to this route',
+      });
+    }
+
+    const result = await getTeamUsersWithPackageInfo((req as any).user);
+    if (result.status === 'user_not_found') {
+      return sendError(res, {
+        success: false,
+        statusCode: 404,
+        message: 'User not found',
+      });
+    }
+    if (result.status === 'team_id_missing') {
+      return sendError(res, {
+        success: false,
+        statusCode: 400,
+        message: 'Team id not found for this user',
+      });
+    }
+
+    return sendResponse(res, {
+      success: true,
+      statusCode: 200,
+      message: 'Team users fetched successfully',
+      data: result.data,
+    });
+  } catch (error) {
+    return sendError(res, {
+      success: false,
+      statusCode: 500,
+      message: 'Failed to fetch team users',
       details: (error as Error).message,
     });
   }
