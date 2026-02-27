@@ -170,6 +170,51 @@ export const sendWelcomeEmail = async (to: string, name: string, tempPassword: s
   await sendBrevoEmail(payload);
 };
 
+export const sendTeamUserDeletedEmail = async (
+  recipients: Array<{ email: string; name?: string | null }>,
+  deletedUserName: string,
+  deletedUserEmail: string,
+  deletedByName: string
+) => {
+  const { senderEmail, senderName } = getEmailConfig();
+  if (!canSendEmail()) {
+    console.warn('====> Email not sent: missing Brevo API env vars');
+    return;
+  }
+
+  if (!Array.isArray(recipients) || recipients.length === 0) {
+    return;
+  }
+
+  const payload = JSON.stringify({
+    sender: { name: senderName, email: senderEmail },
+    to: recipients.map((item) => ({
+      email: item.email,
+      name: item.name || '',
+    })),
+    subject: 'Team update: user removed',
+    htmlContent: `
+    <div style="font-family: Arial, Helvetica, sans-serif; background-color: #f5f7fb; padding: 30px;">
+      <div style="max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 8px; padding: 30px;">
+        <h2 style="color: #333; margin-top: 0;">Team member removed</h2>
+        <p style="color: #555; font-size: 15px; line-height: 1.6;">
+          ${deletedByName} removed a user from your team.
+        </p>
+        <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;padding:12px 16px;margin:16px 0;">
+          <p style="margin:4px 0;color:#334155;font-size:14px;">Name: <strong>${deletedUserName}</strong></p>
+          <p style="margin:4px 0;color:#334155;font-size:14px;">Email: <strong>${deletedUserEmail}</strong></p>
+        </div>
+        <p style="color: #555; font-size: 14px;">
+          Thanks,<br/>
+          <strong>The Cliento Team</strong>
+        </p>
+      </div>
+    </div>`,
+  });
+
+  await sendBrevoEmail(payload);
+};
+
 export const sendPasswordResetOtpEmail = async (to: string, name: string, otp: string) => {
   const { senderEmail, senderName } = getEmailConfig();
   if (!canSendEmail()) {

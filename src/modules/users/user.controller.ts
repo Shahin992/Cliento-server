@@ -1,9 +1,9 @@
 import { Request, Response, NextFunction } from 'express';
 import { randomInt } from 'crypto';
 import { z, ZodError } from 'zod';
-import { changePassword, createPasswordResetOtp, getMyProfile, getTeamUsersWithPackageInfo, loginUser, registerUser, resetPasswordWithOtp, updateProfile, updateProfilePhoto, verifyPasswordResetOtp } from './user.service';
+import { changePassword, createPasswordResetOtp, createTeamUser, deleteTeamUser, getMyProfile, getTeamUsersWithPackageInfo, loginUser, registerUser, resetPasswordWithOtp, updateProfile, updateProfilePhoto, updateTeamUser, verifyPasswordResetOtp } from './user.service';
 import { sendError, sendResponse } from '../../../Utils/response';
-import { canSendEmail, sendPasswordResetConfirmationEmail, sendPasswordResetOtpEmail, sendWelcomeEmail } from '../../config/email';
+import { canSendEmail, sendPasswordResetConfirmationEmail, sendPasswordResetOtpEmail, sendTeamUserDeletedEmail, sendWelcomeEmail } from '../../config/email';
 
 const userSchema = z.object({
   fullName: z.string(),
@@ -56,6 +56,21 @@ const updateProfileSchema = z.object({
   message: 'At least one field is required',
 });
 
+const createTeamUserSchema = z.object({
+  fullName: z.string().min(1),
+  email: z.string().email(),
+  phoneNumber: z.string().min(1).optional(),
+  role: z.enum(['ADMIN', 'MEMBER']).optional(),
+});
+const objectIdSchema = z.string().regex(/^[a-f\d]{24}$/i, 'Invalid id');
+const updateTeamUserSchema = z.object({
+  fullName: z.string().min(1).optional(),
+  phoneNumber: z.string().min(1).optional(),
+  role: z.enum(['ADMIN', 'MEMBER']).optional(),
+}).refine((data) => Object.keys(data).length > 0, {
+  message: 'At least one field is required',
+});
+
 export const signup = async (req: Request, res: Response, next:NextFunction) => {
   try {
     if (typeof req.body?.role === 'string' && req.body.role.trim().toUpperCase() === 'SUPER_ADMIN') {
@@ -92,6 +107,210 @@ export const signup = async (req: Request, res: Response, next:NextFunction) => 
       success: false,
       statusCode: 500,
       message: 'Failed to create user',
+      details: (error as Error).message,
+    });
+  }
+};
+
+export const createTeamUserHandler = async (req: Request, res: Response) => {
+  try {
+    const authUser = (req as any).user;
+    if (!authUser?.id) {
+      return sendError(res, {
+        success: false,
+        statusCode: 401,
+        message: 'You have no access to this route',
+      });
+    }
+
+    const parsed = createTeamUserSchema.parse(req.body);
+    const result = await createTeamUser(authUser, parsed);
+
+    if (result.status === 'user_not_found') {
+      return sendError(res, {
+        success: false,
+        statusCode: 404,
+        message: 'User not found',
+      });
+    }
+    if (result.status === 'team_id_missing') {
+      return sendError(res, {
+        success: false,
+        statusCode: 400,
+        message: 'Team id not found for this user',
+      });
+    }
+    if (result.status === 'owner_not_found') {
+      return sendError(res, {
+        success: false,
+        statusCode: 404,
+        message: 'Owner user not found for this team',
+      });
+    }
+    if (result.status === 'email_exists') {
+      return sendError(res, {
+        success: false,
+        statusCode: 409,
+        message: 'Email already exists',
+      });
+    }
+    if (result.status === 'team_user_limit_reached') {
+      return sendError(res, {
+        success: false,
+        statusCode: 400,
+        message: 'Team user limit reached for your package',
+        details: `Allowed: ${result.limit}, Used: ${result.usedUsers}`,
+      });
+    }
+
+    await sendWelcomeEmail(result.user.email, result.user.fullName, result.tempPassword).catch((error: Error & { code?: string }) => {
+      console.error(`====> Failed to send welcome email (${error.code || 'unknown'}) ${error.message}`);
+    });
+
+    const { password: _password, ...safeUser } = result.user.toObject();
+    return sendResponse(res, {
+      success: true,
+      statusCode: 201,
+      message: 'Team user created successfully',
+      data: safeUser,
+    });
+  } catch (error) {
+    if (error instanceof ZodError) {
+      return sendError(res, {
+        success: false,
+        statusCode: 400,
+        message: 'Validation failed',
+        details: error.errors.map((e) => `${e.path.join('.')}: ${e.message}`).join(', '),
+      });
+    }
+    return sendError(res, {
+      success: false,
+      statusCode: 500,
+      message: 'Failed to create team user',
+      details: (error as Error).message,
+    });
+  }
+};
+
+export const updateTeamUserHandler = async (req: Request, res: Response) => {
+  try {
+    const authUser = (req as any).user;
+    if (!authUser?.id) {
+      return sendError(res, {
+        success: false,
+        statusCode: 401,
+        message: 'You have no access to this route',
+      });
+    }
+
+    const targetUserId = objectIdSchema.parse(req.params.userId);
+    const parsed = updateTeamUserSchema.parse(req.body);
+    const result = await updateTeamUser(authUser, targetUserId, parsed);
+
+    if (result.status === 'user_not_found') {
+      return sendError(res, { success: false, statusCode: 404, message: 'User not found' });
+    }
+    if (result.status === 'team_id_missing') {
+      return sendError(res, { success: false, statusCode: 400, message: 'Team id not found for this user' });
+    }
+    if (result.status === 'target_not_found') {
+      return sendError(res, { success: false, statusCode: 404, message: 'Target user not found in your team' });
+    }
+    if (result.status === 'cannot_modify_owner') {
+      return sendError(res, { success: false, statusCode: 400, message: 'Owner user cannot be modified' });
+    }
+    if (result.status === 'forbidden') {
+      return sendError(res, { success: false, statusCode: 403, message: 'You are not authorized to update this user' });
+    }
+
+    const { password: _password, ...safeUser } = result.user.toObject();
+    return sendResponse(res, {
+      success: true,
+      statusCode: 200,
+      message: 'Team user updated successfully',
+      data: safeUser,
+    });
+  } catch (error) {
+    if (error instanceof ZodError) {
+      return sendError(res, {
+        success: false,
+        statusCode: 400,
+        message: 'Validation failed',
+        details: error.errors.map((e) => `${e.path.join('.')}: ${e.message}`).join(', '),
+      });
+    }
+    return sendError(res, {
+      success: false,
+      statusCode: 500,
+      message: 'Failed to update team user',
+      details: (error as Error).message,
+    });
+  }
+};
+
+export const deleteTeamUserHandler = async (req: Request, res: Response) => {
+  try {
+    const authUser = (req as any).user;
+    if (!authUser?.id) {
+      return sendError(res, {
+        success: false,
+        statusCode: 401,
+        message: 'You have no access to this route',
+      });
+    }
+
+    const targetUserId = objectIdSchema.parse(req.params.userId);
+    const result = await deleteTeamUser(authUser, targetUserId);
+
+    if (result.status === 'user_not_found') {
+      return sendError(res, { success: false, statusCode: 404, message: 'User not found' });
+    }
+    if (result.status === 'team_id_missing') {
+      return sendError(res, { success: false, statusCode: 400, message: 'Team id not found for this user' });
+    }
+    if (result.status === 'cannot_delete_self') {
+      return sendError(res, { success: false, statusCode: 400, message: 'You cannot delete your own account from this route' });
+    }
+    if (result.status === 'target_not_found') {
+      return sendError(res, { success: false, statusCode: 404, message: 'Target user not found in your team' });
+    }
+    if (result.status === 'cannot_modify_owner') {
+      return sendError(res, { success: false, statusCode: 400, message: 'Owner user cannot be deleted' });
+    }
+    if (result.status === 'forbidden') {
+      return sendError(res, { success: false, statusCode: 403, message: 'You are not authorized to delete this user' });
+    }
+
+    if (canSendEmail() && result.recipients.length) {
+      await sendTeamUserDeletedEmail(
+        result.recipients,
+        result.deletedUser.fullName,
+        result.deletedUser.email,
+        authUser.fullName ? String(authUser.fullName) : 'A team admin'
+      ).catch((error: Error & { code?: string }) => {
+        console.error(`====> Failed to send team delete notification email (${error.code || 'unknown'}) ${error.message}`);
+      });
+    }
+
+    return sendResponse(res, {
+      success: true,
+      statusCode: 200,
+      message: 'Team user deleted successfully',
+      data: result.deletedUser,
+    });
+  } catch (error) {
+    if (error instanceof ZodError) {
+      return sendError(res, {
+        success: false,
+        statusCode: 400,
+        message: 'Validation failed',
+        details: error.errors.map((e) => `${e.path.join('.')}: ${e.message}`).join(', '),
+      });
+    }
+    return sendError(res, {
+      success: false,
+      statusCode: 500,
+      message: 'Failed to delete team user',
       details: (error as Error).message,
     });
   }

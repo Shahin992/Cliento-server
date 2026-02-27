@@ -26,6 +26,7 @@ export type UserInput = {
   fullName: string;
   email: string;
   companyName: string;
+  role?: UserRole;
   profilePhoto?: string | null;
   phoneNumber: string;
   location?: string | null;
@@ -34,6 +35,9 @@ export type UserInput = {
   accessExpiresAt?: Date | null;
   planType?: 'trial' | 'paid';
   teamId?: number | null;
+  ownerInfo?: {
+    ownerId: Types.ObjectId | string;
+  } | null;
 };
 
 export type RegisterUserInput = UserInput & {

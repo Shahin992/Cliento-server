@@ -10,6 +10,19 @@ type SigninInput = {
   password: string;
 };
 
+type CreateTeamUserInput = {
+  fullName: string;
+  email: string;
+  phoneNumber?: string | null;
+  role?: 'ADMIN' | 'MEMBER';
+};
+
+type UpdateTeamUserInput = {
+  fullName?: string;
+  phoneNumber?: string;
+  role?: 'ADMIN' | 'MEMBER';
+};
+
 export const registerUser = async (payload: RegisterUserInput) => {
   const user = new User(payload);
   await user.save();
@@ -149,6 +162,7 @@ type TeamUsersAuthContext = {
   id: string;
   role?: string | null;
   teamId?: number | null;
+  companyName?: string | null;
   ownerId?: string | null;
   ownerInfo?: {
     ownerId?: string | null;
@@ -234,5 +248,168 @@ export const getTeamUsersWithPackageInfo = async (authUser: TeamUsersAuthContext
         userLimit === null || remainingUsers === null ? null : remainingUsers > 0,
       users,
     },
+  };
+};
+
+const resolveTeamOwnerId = async (authUser: TeamUsersAuthContext, teamId: number) => {
+  if (authUser.role === 'OWNER') return authUser.id;
+  if (authUser.ownerId) return String(authUser.ownerId);
+  if (authUser.ownerInfo?.ownerId) return String(authUser.ownerInfo.ownerId);
+
+  const owner = await User.findOne({ teamId, role: 'OWNER' }).select('_id').lean();
+  return owner ? String(owner._id) : null;
+};
+
+export const createTeamUser = async (
+  authUser: TeamUsersAuthContext | null | undefined,
+  payload: CreateTeamUserInput
+) => {
+  if (!authUser?.id) {
+    return { status: 'user_not_found' as const };
+  }
+
+  if (authUser.teamId === null || authUser.teamId === undefined) {
+    return { status: 'team_id_missing' as const };
+  }
+
+  const teamId = Number(authUser.teamId);
+  const ownerId = await resolveTeamOwnerId(authUser, teamId);
+  if (!ownerId) {
+    return { status: 'owner_not_found' as const };
+  }
+
+  const existingUser = await User.findOne({ email: payload.email.toLowerCase().trim() }).select('_id');
+  if (existingUser) {
+    return { status: 'email_exists' as const };
+  }
+
+  const userLimit = await resolveTeamUserLimit(ownerId, authUser.id);
+  const usedUsers = await User.countDocuments({ teamId });
+  if (userLimit !== null && usedUsers >= userLimit) {
+    return {
+      status: 'team_user_limit_reached' as const,
+      limit: userLimit,
+      usedUsers,
+    };
+  }
+
+  const tempPassword = String(Math.floor(100000 + Math.random() * 900000));
+  const userRole: 'ADMIN' | 'MEMBER' = payload.role === 'ADMIN' ? 'ADMIN' : 'MEMBER';
+  const createdUser = await registerUser({
+    fullName: payload.fullName,
+    email: payload.email.toLowerCase().trim(),
+    companyName: authUser.companyName ? String(authUser.companyName).trim() : '',
+    phoneNumber: payload.phoneNumber?.trim() || '',
+    location: null,
+    timeZone: null,
+    profilePhoto: null,
+    password: tempPassword,
+    role: userRole as any,
+    teamId,
+    ownerInfo: { ownerId } as any,
+    planType: 'trial',
+  } as any);
+
+  return {
+    status: 'ok' as const,
+    user: createdUser,
+    tempPassword,
+  };
+};
+
+const findTeamUserById = (teamId: number, userId: string) => {
+  return User.findOne({ _id: userId, teamId });
+};
+
+export const updateTeamUser = async (
+  authUser: TeamUsersAuthContext | null | undefined,
+  targetUserId: string,
+  payload: UpdateTeamUserInput
+) => {
+  if (!authUser?.id) {
+    return { status: 'user_not_found' as const };
+  }
+
+  if (authUser.teamId === null || authUser.teamId === undefined) {
+    return { status: 'team_id_missing' as const };
+  }
+
+  const teamId = Number(authUser.teamId);
+  const targetUser = await findTeamUserById(teamId, targetUserId);
+  if (!targetUser) {
+    return { status: 'target_not_found' as const };
+  }
+
+  if (targetUser.role === 'OWNER') {
+    return { status: 'cannot_modify_owner' as const };
+  }
+
+  if (authUser.role === 'ADMIN') {
+    if (targetUser.role === 'ADMIN') {
+      return { status: 'forbidden' as const };
+    }
+    if (payload.role === 'ADMIN') {
+      return { status: 'forbidden' as const };
+    }
+  }
+
+  if (payload.fullName !== undefined) targetUser.fullName = payload.fullName.trim();
+  if (payload.phoneNumber !== undefined) targetUser.phoneNumber = payload.phoneNumber.trim();
+  if (payload.role !== undefined) targetUser.role = payload.role;
+
+  await targetUser.save();
+  return {
+    status: 'ok' as const,
+    user: targetUser,
+  };
+};
+
+export const deleteTeamUser = async (authUser: TeamUsersAuthContext | null | undefined, targetUserId: string) => {
+  if (!authUser?.id) {
+    return { status: 'user_not_found' as const };
+  }
+
+  if (authUser.teamId === null || authUser.teamId === undefined) {
+    return { status: 'team_id_missing' as const };
+  }
+
+  if (authUser.id === targetUserId) {
+    return { status: 'cannot_delete_self' as const };
+  }
+
+  const teamId = Number(authUser.teamId);
+  const targetUser = await findTeamUserById(teamId, targetUserId).select('_id fullName email role');
+  if (!targetUser) {
+    return { status: 'target_not_found' as const };
+  }
+
+  if (targetUser.role === 'OWNER') {
+    return { status: 'cannot_modify_owner' as const };
+  }
+
+  if (authUser.role === 'ADMIN' && targetUser.role === 'ADMIN') {
+    return { status: 'forbidden' as const };
+  }
+
+  await User.deleteOne({ _id: targetUser._id });
+
+  const teamUsers = await User.find({ teamId })
+    .select('email fullName')
+    .lean();
+
+  return {
+    status: 'ok' as const,
+    deletedUser: {
+      id: String(targetUser._id),
+      fullName: targetUser.fullName,
+      email: targetUser.email,
+      role: targetUser.role,
+    },
+    recipients: teamUsers
+      .filter((item) => item.email)
+      .map((item) => ({
+        email: String(item.email),
+        name: item.fullName ? String(item.fullName) : '',
+      })),
   };
 };
