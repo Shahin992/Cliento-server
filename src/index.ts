@@ -13,6 +13,7 @@ import taskRoutes from '../src/modules/tasks/task.route';
 import googleMailRoutes from '../src/modules/mail/google.route';
 import packageRoutes from '../src/modules/billing/package.route';
 import subscriptionRoutes from '../src/modules/subscription/subscription.route';
+import dashboardRoutes from '../src/modules/dashboard/dashboard.route';
 import { stripeWebhookHandler } from '../src/modules/billing/stripeWebhook.controller';
 import { connectDB } from './config/db';
 import path from 'path';
@@ -66,6 +67,7 @@ const swaggerSpec = swaggerJSDoc({
             { name: 'Pipelines' },
             { name: 'Deals' },
             { name: 'Tasks' },
+            { name: 'Dashboard' },
             { name: 'Mail' },
             { name: 'Packages' },
             { name: 'Subscriptions' },
@@ -93,7 +95,7 @@ app.use('/api-docs', swaggerUi.serve);
 app.get('/api-docs', swaggerUi.setup(swaggerSpec, {
     swaggerOptions: {
         tagsSorter: (a: string, b: string) => {
-            const tagOrder = ['Upload', 'Auth', 'Users', 'Contacts', 'Pipelines', 'Deals', 'Tasks', 'Mail', 'Packages', 'Subscriptions'];
+            const tagOrder = ['Upload', 'Auth', 'Users', 'Contacts', 'Pipelines', 'Deals', 'Tasks', 'Dashboard', 'Mail', 'Packages', 'Subscriptions'];
             const rankA = tagOrder.indexOf(a);
             const rankB = tagOrder.indexOf(b);
             const hasRankA = rankA !== -1;
@@ -158,6 +160,7 @@ app.use('/api/tasks', taskRoutes);
 app.use('/api/mail/google', googleMailRoutes);
 app.use('/api/packages', packageRoutes);
 app.use('/api/subscriptions', subscriptionRoutes);
+app.use('/api/dashboard', dashboardRoutes);
 app.get('/health-check', (_req: Request, res: Response) => {
     return res.status(200).json({
         success: true,

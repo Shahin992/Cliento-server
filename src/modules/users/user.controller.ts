@@ -84,7 +84,7 @@ export const signup = async (req: Request, res: Response, next:NextFunction) => 
     const parsed = userSchema.parse(req.body);
     const tempPassword = String(randomInt(100000, 1000000));
     const user =  await registerUser({ ...parsed, password: tempPassword });
-   await  sendWelcomeEmail(user.email, user.fullName, tempPassword).catch((error: Error & { code?: string }) => {
+   await  sendWelcomeEmail(user.email, user.fullName, tempPassword, { flow: 'signup' }).catch((error: Error & { code?: string }) => {
       console.error(`====> Failed to send welcome email (${error.code || 'unknown'}) ${error.message}`);
     });
     const { password: _password, ...safeUser } = user.toObject();
@@ -163,7 +163,7 @@ export const createTeamUserHandler = async (req: Request, res: Response) => {
       });
     }
 
-    await sendWelcomeEmail(result.user.email, result.user.fullName, result.tempPassword).catch((error: Error & { code?: string }) => {
+    await sendWelcomeEmail(result.user.email, result.user.fullName, result.tempPassword, { flow: 'team_invite' }).catch((error: Error & { code?: string }) => {
       console.error(`====> Failed to send welcome email (${error.code || 'unknown'}) ${error.message}`);
     });
 
