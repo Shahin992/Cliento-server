@@ -4,6 +4,7 @@ import { User } from './user.model';
 import { RegisterUserInput } from './user.interface';
 import { PasswordResetOtp } from './passwordResetOtp.model';
 import { BillingSubscription } from '../subscription/subscription.model';
+import { GoogleMailbox } from '../mail/google.model';
 
 type SigninInput = {
   email: string;
@@ -151,9 +152,50 @@ export const changePassword = async (userId: string, currentPassword: string, ne
   return { status: 'ok' as const };
 };
 
+type UserWithId = {
+  _id: unknown;
+  [key: string]: unknown;
+};
+
+export const attachConnectedEmails = async <T extends UserWithId>(users: T[]) => {
+  if (!users.length) return users.map((user) => ({ ...user, connectedEmails: [], connectedEmailCount: 0 }));
+
+  const userIds = users.map((user) => user._id);
+  const mailboxes = await GoogleMailbox.find({
+    userId: { $in: userIds },
+    isDeleted: false,
+    isDisconnected: false,
+  })
+    .select('userId googleEmail isDefault updatedAt')
+    .sort({ userId: 1, isDefault: -1, updatedAt: -1 })
+    .lean();
+
+  const mailboxMap = new Map<string, string[]>();
+
+  for (const mailbox of mailboxes) {
+    const key = String(mailbox.userId);
+    const existing = mailboxMap.get(key) || [];
+    existing.push(mailbox.googleEmail);
+    mailboxMap.set(key, existing);
+  }
+
+  return users.map((user) => {
+    const connectedEmails = mailboxMap.get(String(user._id)) || [];
+
+    return {
+      ...user,
+      connectedEmails,
+      connectedEmailCount: connectedEmails.length,
+    };
+  });
+};
+
 export const getMyProfile = async (userId: string) => {
-  const user = await User.findById(userId);
-  return user;
+  const user = await User.findById(userId).select('-password').lean();
+  if (!user) return null;
+
+  const [profile] = await attachConnectedEmails([user]);
+  return profile;
 };
 
 const ACTIVE_SUBSCRIPTION_STATUSES = ['trialing', 'active', 'past_due'] as const;
@@ -219,7 +261,7 @@ export const getTeamUsersWithPackageInfo = async (authUser: TeamUsersAuthContext
     .sort({ createdAt: -1 })
     .lean();
 
-  let ownerUserId =
+    let ownerUserId =
     authUser.role === 'OWNER'
       ? authUser.id
       : authUser.ownerId

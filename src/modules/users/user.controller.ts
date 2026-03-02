@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { randomInt } from 'crypto';
 import { z, ZodError } from 'zod';
-import { changePassword, createPasswordResetOtp, createTeamUser, deleteTeamUser, getMyProfile, getTeamUsersWithPackageInfo, loginUser, registerUser, resetPasswordWithOtp, updateProfile, updateProfilePhoto, updateTeamUser, verifyPasswordResetOtp } from './user.service';
+import { attachConnectedEmails, changePassword, createPasswordResetOtp, createTeamUser, deleteTeamUser, getMyProfile, getTeamUsersWithPackageInfo, loginUser, registerUser, resetPasswordWithOtp, updateProfile, updateProfilePhoto, updateTeamUser, verifyPasswordResetOtp } from './user.service';
 import { sendError, sendResponse } from '../../../Utils/response';
 import { canSendEmail, sendPasswordResetConfirmationEmail, sendPasswordResetOtpEmail, sendTeamUserDeletedEmail, sendWelcomeEmail } from '../../config/email';
 
@@ -334,7 +334,10 @@ export const signin = async (req: Request, res: Response, next: NextFunction) =>
         message: 'Invalid password',
       });
     }
-    const { password: _password, ...safeUser } = result.user.toObject();
+
+    const { password: _password, ...rawUser } = result.user.toObject();
+    const [safeUser] = await attachConnectedEmails([rawUser]);
+
     return sendResponse(res, {
       success: true,
       statusCode: 200,
@@ -687,12 +690,11 @@ export const getMyProfileHandler = async (req: Request, res: Response) => {
       });
     }
 
-    const { password: _password, ...safeUser } = user.toObject();
     return sendResponse(res, {
       success: true,
       statusCode: 200,
       message: 'Profile fetched successfully',
-      data: safeUser,
+      data: user,
     });
   } catch (error) {
     return sendError(res, {
