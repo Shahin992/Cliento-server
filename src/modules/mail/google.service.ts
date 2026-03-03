@@ -11,12 +11,9 @@ type OAuthStatePayload = {
 type SendEmailInput = {
   userId: string;
   to: string[];
+  from: string;
   subject: string;
-  text?: string;
-  html?: string;
-  cc?: string[];
-  bcc?: string[];
-  threadId?: string;
+  body: string;
 };
 
 type ListInboxInput = {
@@ -146,13 +143,15 @@ const ensureSingleDefaultMailbox = async (userId: string) => {
   await GoogleMailbox.updateOne({ _id: targetDefault._id }, { $set: { isDefault: true } });
 };
 
-const getAuthorizedClient = async (userId: string) => {
-  const integration = await GoogleMailbox.findOne({
+const getAuthorizedClient = async (userId: string, googleEmail?: string) => {
+  const mailboxQuery = {
     userId,
     isDeleted: false,
     isDisconnected: false,
-  })
-    .sort({ isDefault: -1, updatedAt: -1 });
+    ...(googleEmail ? { googleEmail: googleEmail.toLowerCase() } : {}),
+  };
+
+  const integration = await GoogleMailbox.findOne(mailboxQuery).sort({ isDefault: -1, updatedAt: -1 });
   if (!integration || integration.isDisconnected || integration.isDeleted) {
     return { status: 'not_connected' as const };
   }
@@ -212,20 +211,16 @@ const getHeaderValue = (headers: { name?: string | null; value?: string | null }
 
 const buildRawMessage = (input: SendEmailInput) => {
   const headers = [
+    `From: ${input.from}`,
     `To: ${input.to.join(', ')}`,
-    input.cc && input.cc.length ? `Cc: ${input.cc.join(', ')}` : null,
-    input.bcc && input.bcc.length ? `Bcc: ${input.bcc.join(', ')}` : null,
     `Subject: ${input.subject}`,
     'MIME-Version: 1.0',
-    input.html
-      ? 'Content-Type: text/html; charset="UTF-8"'
-      : 'Content-Type: text/plain; charset="UTF-8"',
+    'Content-Type: text/plain; charset="UTF-8"',
   ]
     .filter(Boolean)
     .join('\r\n');
 
-  const body = input.html || input.text || '';
-  const message = `${headers}\r\n\r\n${body}`;
+  const message = `${headers}\r\n\r\n${input.body}`;
   return Buffer.from(message, 'utf8').toString('base64url');
 };
 
@@ -436,7 +431,7 @@ export const makeDefaultGoogleMailbox = async (userId: string, mailboxId: string
 };
 
 export const sendGoogleEmail = async (payload: SendEmailInput) => {
-  const result = await getAuthorizedClient(payload.userId);
+  const result = await getAuthorizedClient(payload.userId, payload.from);
   if (result.status !== 'ok') {
     return { status: 'not_connected' as const };
   }
@@ -448,7 +443,6 @@ export const sendGoogleEmail = async (payload: SendEmailInput) => {
     userId: 'me',
     requestBody: {
       raw,
-      threadId: payload.threadId,
     },
   });
 

@@ -90,30 +90,21 @@ router.get('/accounts', authenticate, getGoogleMailboxListHandler);
  *             type: object
  *             required:
  *               - to
+ *               - from
  *               - subject
+ *               - body
  *             properties:
  *               to:
  *                 type: array
  *                 items:
  *                   type: string
  *                   format: email
- *               cc:
- *                 type: array
- *                 items:
- *                   type: string
- *                   format: email
- *               bcc:
- *                 type: array
- *                 items:
- *                   type: string
- *                   format: email
+ *               from:
+ *                 type: string
+ *                 format: email
  *               subject:
  *                 type: string
- *               text:
- *                 type: string
- *               html:
- *                 type: string
- *               threadId:
+ *               body:
  *                 type: string
  *     responses:
  *       200:

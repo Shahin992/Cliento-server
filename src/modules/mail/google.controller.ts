@@ -19,17 +19,10 @@ const callbackQuerySchema = z.object({
 
 const sendMailSchema = z
   .object({
-    to: z.array(z.string().email()).min(1),
-    cc: z.array(z.string().email()).optional(),
-    bcc: z.array(z.string().email()).optional(),
-    subject: z.string().min(1),
-    text: z.string().optional(),
-    html: z.string().optional(),
-    threadId: z.string().optional(),
-  })
-  .refine((data) => Boolean(data.text || data.html), {
-    message: 'Either text or html content is required',
-    path: ['text'],
+    to: z.array(z.string().trim().email()).min(1),
+    from: z.string().trim().email(),
+    subject: z.string().trim().min(1),
+    body: z.string().min(1),
   });
 
 const listInboxQuerySchema = z.object({
@@ -157,7 +150,10 @@ export const sendGoogleEmailHandler = async (req: Request, res: Response) => {
     const parsed = sendMailSchema.parse(req.body);
     const result = await sendGoogleEmail({
       userId,
-      ...parsed,
+      to: parsed.to,
+      from: parsed.from.toLowerCase(),
+      subject: parsed.subject,
+      body: parsed.body,
     });
 
     if (result.status !== 'ok') {
