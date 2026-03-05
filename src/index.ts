@@ -10,6 +10,7 @@ import contactNoteRoutes from '../src/modules/contacts/contactNote.route';
 import pipelineRoutes from '../src/modules/deals/pipeline.route';
 import dealRoutes from '../src/modules/deals/deal.route';
 import taskRoutes from '../src/modules/tasks/task.route';
+import conversationRoutes from '../src/modules/conversations/conversation.route';
 import googleMailRoutes from '../src/modules/mail/google.route';
 import packageRoutes from '../src/modules/billing/package.route';
 import subscriptionRoutes from '../src/modules/subscription/subscription.route';
@@ -67,6 +68,7 @@ const swaggerSpec = swaggerJSDoc({
             { name: 'Pipelines' },
             { name: 'Deals' },
             { name: 'Tasks' },
+            { name: 'Conversations' },
             { name: 'Dashboard' },
             { name: 'Mail' },
             { name: 'Packages' },
@@ -95,7 +97,7 @@ app.use('/api-docs', swaggerUi.serve);
 app.get('/api-docs', swaggerUi.setup(swaggerSpec, {
     swaggerOptions: {
         tagsSorter: (a: string, b: string) => {
-            const tagOrder = ['Upload', 'Auth', 'Users', 'Contacts', 'Pipelines', 'Deals', 'Tasks', 'Dashboard', 'Mail', 'Packages', 'Subscriptions'];
+            const tagOrder = ['Upload', 'Auth', 'Users', 'Contacts', 'Pipelines', 'Deals', 'Tasks', 'Conversations', 'Dashboard', 'Mail', 'Packages', 'Subscriptions'];
             const rankA = tagOrder.indexOf(a);
             const rankB = tagOrder.indexOf(b);
             const hasRankA = rankA !== -1;
@@ -122,9 +124,10 @@ app.get('/api-docs', swaggerUi.setup(swaggerSpec, {
                 '/api/pipelines': 6,
                 '/api/deals': 7,
                 '/api/tasks': 8,
-                '/api/mail/google': 9,
-                '/api/packages': 10,
-                '/api/subscriptions': 11,
+                '/api/conversations': 9,
+                '/api/mail/google': 10,
+                '/api/packages': 11,
+                '/api/subscriptions': 12,
             };
 
             const getPathRank = (path: string) => {
@@ -157,6 +160,7 @@ app.use('/api/contact-notes', contactNoteRoutes);
 app.use('/api/pipelines', pipelineRoutes);
 app.use('/api/deals', dealRoutes);
 app.use('/api/tasks', taskRoutes);
+app.use('/api/conversations', conversationRoutes);
 app.use('/api/mail/google', googleMailRoutes);
 app.use('/api/packages', packageRoutes);
 app.use('/api/subscriptions', subscriptionRoutes);

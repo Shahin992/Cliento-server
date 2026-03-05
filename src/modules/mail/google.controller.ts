@@ -23,6 +23,16 @@ const sendMailSchema = z
     from: z.string().trim().email(),
     subject: z.string().trim().min(1),
     body: z.string().min(1),
+    contactId: z
+      .preprocess(
+        (value) => {
+          if (value === undefined || value === null) return undefined;
+          if (typeof value !== 'string') return value;
+          const trimmed = value.trim();
+          return trimmed.length ? trimmed : null;
+        },
+        z.string().regex(/^[a-f\d]{24}$/i, 'Invalid contactId').nullable().optional()
+      ),
   });
 
 const listInboxQuerySchema = z.object({
@@ -154,7 +164,16 @@ export const sendGoogleEmailHandler = async (req: Request, res: Response) => {
       from: parsed.from.toLowerCase(),
       subject: parsed.subject,
       body: parsed.body,
+      contactId: parsed.contactId ?? null,
     });
+
+    if (result.status === 'invalid_contact') {
+      return sendError(res, {
+        success: false,
+        statusCode: 404,
+        message: 'Contact not found for this user',
+      });
+    }
 
     if (result.status !== 'ok') {
       return sendError(res, {

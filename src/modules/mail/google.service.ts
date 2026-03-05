@@ -1,6 +1,8 @@
 import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
 import { google } from 'googleapis';
+import { Contact } from '../contacts/contact.model';
+import { upsertConversationByExternalMessage } from '../conversations/conversation.service';
 import { GoogleMailbox } from './google.model';
 
 type OAuthStatePayload = {
@@ -14,6 +16,7 @@ type SendEmailInput = {
   from: string;
   subject: string;
   body: string;
+  contactId?: string | null;
 };
 
 type ListInboxInput = {
@@ -21,6 +24,12 @@ type ListInboxInput = {
   maxResults: number;
   pageToken?: string;
   q?: string;
+};
+
+type SyncInboxRepliesInput = {
+  userId: string;
+  contactId: string;
+  maxResultsPerMailbox?: number;
 };
 
 const GOOGLE_SCOPES = [
@@ -207,6 +216,26 @@ const getHeaderValue = (headers: { name?: string | null; value?: string | null }
   if (!headers) return null;
   const match = headers.find((item) => item.name?.toLowerCase() === key.toLowerCase());
   return match?.value || null;
+};
+
+const parseEmailFromHeader = (value?: string | null) => {
+  if (!value) return null;
+  const match = value.match(/<([^>]+)>/);
+  const raw = (match?.[1] || value).trim().toLowerCase();
+  const cleaned = raw.replace(/^"+|"+$/g, '');
+  return cleaned.includes('@') ? cleaned : null;
+};
+
+const parseEmailListFromHeader = (value?: string | null) => {
+  if (!value) return [];
+  return Array.from(
+    new Set(
+      value
+        .split(',')
+        .map((item) => parseEmailFromHeader(item))
+        .filter((item): item is string => Boolean(item))
+    )
+  );
 };
 
 const buildRawMessage = (input: SendEmailInput) => {
@@ -431,6 +460,18 @@ export const makeDefaultGoogleMailbox = async (userId: string, mailboxId: string
 };
 
 export const sendGoogleEmail = async (payload: SendEmailInput) => {
+  if (payload.contactId) {
+    const contact = await Contact.findOne({
+      _id: payload.contactId,
+      ownerId: payload.userId,
+      deletedAt: null,
+    }).select('_id');
+
+    if (!contact) {
+      return { status: 'invalid_contact' as const };
+    }
+  }
+
   const result = await getAuthorizedClient(payload.userId, payload.from);
   if (result.status !== 'ok') {
     return { status: 'not_connected' as const };
@@ -446,14 +487,153 @@ export const sendGoogleEmail = async (payload: SendEmailInput) => {
     },
   });
 
+  const sentMessageId = sent.data.id || null;
+  const sentThreadId = sent.data.threadId || null;
+  const sentAt = new Date();
+  const participants = Array.from(new Set([payload.from, ...payload.to].map((item) => item.trim().toLowerCase())));
+
+  let conversationSync: { status: 'created' | 'updated' | 'skipped' | 'failed'; conversationId?: string; reason?: string } = {
+    status: 'skipped',
+  };
+
+  if (sentMessageId) {
+    try {
+      const upsertResult = await upsertConversationByExternalMessage({
+        ownerId: payload.userId,
+        contactId: payload.contactId ?? null,
+        mailboxId: String(result.integration._id),
+        method: 'email',
+        direction: 'outgoing',
+        subject: payload.subject,
+        body: payload.body,
+        from: payload.from,
+        to: payload.to,
+        participants,
+        externalMessageId: sentMessageId,
+        externalThreadId: sentThreadId,
+        sentAt,
+        createdBy: payload.userId,
+        updatedBy: payload.userId,
+      });
+
+      if (upsertResult.status === 'created' || upsertResult.status === 'updated') {
+        conversationSync = {
+          status: upsertResult.status,
+          conversationId: String(upsertResult.conversation._id),
+        };
+      }
+    } catch (error) {
+      // Email is already sent at this point; avoid returning failure that could trigger duplicate re-sends.
+      conversationSync = {
+        status: 'failed',
+        reason: (error as Error).message,
+      };
+    }
+  }
+
   return {
     status: 'ok' as const,
     message: {
-      id: sent.data.id,
-      threadId: sent.data.threadId,
+      id: sentMessageId,
+      threadId: sentThreadId,
       labelIds: sent.data.labelIds || [],
+      conversationSync,
     },
   };
+};
+
+export const syncGoogleInboxRepliesForContact = async (payload: SyncInboxRepliesInput) => {
+  const contact = await Contact.findOne({
+    _id: payload.contactId,
+    ownerId: payload.userId,
+    deletedAt: null,
+  }).select('_id emails');
+
+  if (!contact) {
+    return { status: 'contact_not_found' as const };
+  }
+
+  const contactEmails = Array.from(new Set((contact.emails || []).map((item) => item.trim().toLowerCase()).filter(Boolean)));
+  if (!contactEmails.length) {
+    return { status: 'ok' as const, syncedCount: 0 };
+  }
+
+  const mailboxes = await GoogleMailbox.find({
+    userId: payload.userId,
+    isDeleted: false,
+    isDisconnected: false,
+  })
+    .select('_id googleEmail')
+    .sort({ isDefault: -1, updatedAt: -1 });
+
+  if (!mailboxes.length) {
+    return { status: 'not_connected' as const, syncedCount: 0 };
+  }
+
+  let syncedCount = 0;
+  const maxResults = payload.maxResultsPerMailbox || 30;
+  const fromQuery = `(${contactEmails.map((email) => `from:${email}`).join(' OR ')})`;
+
+  for (const mailbox of mailboxes) {
+    const auth = await getAuthorizedClient(payload.userId, mailbox.googleEmail);
+    if (auth.status !== 'ok') continue;
+
+    const gmail = google.gmail({ version: 'v1', auth: auth.oauth2Client });
+    const listRes = await gmail.users.messages.list({
+      userId: 'me',
+      labelIds: ['INBOX'],
+      q: fromQuery,
+      maxResults,
+    });
+
+    const messages = listRes.data.messages || [];
+    for (const msg of messages) {
+      if (!msg.id) continue;
+
+      const details = await gmail.users.messages.get({
+        userId: 'me',
+        id: msg.id,
+        format: 'metadata',
+        metadataHeaders: ['From', 'To', 'Subject', 'Date'],
+      });
+
+      const headers = details.data.payload?.headers || [];
+      const fromRaw = getHeaderValue(headers, 'From');
+      const toRaw = getHeaderValue(headers, 'To');
+      const subject = getHeaderValue(headers, 'Subject');
+      const fromEmail = parseEmailFromHeader(fromRaw);
+      if (!fromEmail || !contactEmails.includes(fromEmail)) continue;
+
+      const toEmails = parseEmailListFromHeader(toRaw);
+      const participants = Array.from(new Set([fromEmail, ...toEmails]));
+      const internalDateMs = Number(details.data.internalDate || 0);
+      const sentAt = Number.isFinite(internalDateMs) && internalDateMs > 0 ? new Date(internalDateMs) : null;
+
+      const upsert = await upsertConversationByExternalMessage({
+        ownerId: payload.userId,
+        contactId: String(contact._id),
+        mailboxId: String(auth.integration._id),
+        method: 'email',
+        direction: 'incoming',
+        subject: subject || null,
+        body: details.data.snippet || null,
+        from: fromEmail,
+        to: toEmails,
+        participants,
+        externalMessageId: details.data.id || msg.id,
+        externalThreadId: details.data.threadId || null,
+        sentAt,
+        createdBy: payload.userId,
+        updatedBy: payload.userId,
+      });
+
+      if (upsert.status === 'created') {
+        syncedCount += 1;
+      }
+    }
+  }
+
+  return { status: 'ok' as const, syncedCount };
 };
 
 export const listGoogleInbox = async (payload: ListInboxInput) => {

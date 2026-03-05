@@ -106,6 +106,9 @@ router.get('/accounts', authenticate, getGoogleMailboxListHandler);
  *                 type: string
  *               body:
  *                 type: string
+ *               contactId:
+ *                 type: string
+ *                 nullable: true
  *     responses:
  *       200:
  *         description: Email sent
