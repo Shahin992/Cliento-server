@@ -30,6 +30,7 @@ type SyncInboxRepliesInput = {
   userId: string;
   contactId: string;
   maxResultsPerMailbox?: number;
+  maxMailboxes?: number;
 };
 
 const GOOGLE_SCOPES = [
@@ -571,10 +572,12 @@ export const syncGoogleInboxRepliesForContact = async (payload: SyncInboxReplies
   }
 
   let syncedCount = 0;
-  const maxResults = payload.maxResultsPerMailbox || 30;
+  const maxResults = payload.maxResultsPerMailbox || 10;
+  const maxMailboxes = payload.maxMailboxes || 1;
   const fromQuery = `(${contactEmails.map((email) => `from:${email}`).join(' OR ')})`;
+  const targetMailboxes = mailboxes.slice(0, Math.max(1, maxMailboxes));
 
-  for (const mailbox of mailboxes) {
+  for (const mailbox of targetMailboxes) {
     const auth = await getAuthorizedClient(payload.userId, mailbox.googleEmail);
     if (auth.status !== 'ok') continue;
 
@@ -586,51 +589,59 @@ export const syncGoogleInboxRepliesForContact = async (payload: SyncInboxReplies
       maxResults,
     });
 
-    const messages = listRes.data.messages || [];
-    for (const msg of messages) {
-      if (!msg.id) continue;
+    const messages = (listRes.data.messages || []).filter((msg) => Boolean(msg.id));
+    if (!messages.length) continue;
 
-      const details = await gmail.users.messages.get({
-        userId: 'me',
-        id: msg.id,
-        format: 'metadata',
-        metadataHeaders: ['From', 'To', 'Subject', 'Date'],
-      });
+    const detailsList = await Promise.all(
+      messages.map((msg) =>
+        gmail.users.messages
+          .get({
+            userId: 'me',
+            id: msg.id!,
+            format: 'metadata',
+            metadataHeaders: ['From', 'To', 'Subject', 'Date'],
+          })
+          .catch(() => null)
+      )
+    );
 
-      const headers = details.data.payload?.headers || [];
-      const fromRaw = getHeaderValue(headers, 'From');
-      const toRaw = getHeaderValue(headers, 'To');
-      const subject = getHeaderValue(headers, 'Subject');
-      const fromEmail = parseEmailFromHeader(fromRaw);
-      if (!fromEmail || !contactEmails.includes(fromEmail)) continue;
+    const upsertResults = await Promise.all(
+      detailsList
+        .filter(Boolean)
+        .map(async (details: any) => {
+          const headers = details.data.payload?.headers || [];
+          const fromRaw = getHeaderValue(headers, 'From');
+          const toRaw = getHeaderValue(headers, 'To');
+          const subject = getHeaderValue(headers, 'Subject');
+          const fromEmail = parseEmailFromHeader(fromRaw);
+          if (!fromEmail || !contactEmails.includes(fromEmail)) return null;
 
-      const toEmails = parseEmailListFromHeader(toRaw);
-      const participants = Array.from(new Set([fromEmail, ...toEmails]));
-      const internalDateMs = Number(details.data.internalDate || 0);
-      const sentAt = Number.isFinite(internalDateMs) && internalDateMs > 0 ? new Date(internalDateMs) : null;
+          const toEmails = parseEmailListFromHeader(toRaw);
+          const participants = Array.from(new Set([fromEmail, ...toEmails]));
+          const internalDateMs = Number(details.data.internalDate || 0);
+          const sentAt = Number.isFinite(internalDateMs) && internalDateMs > 0 ? new Date(internalDateMs) : null;
 
-      const upsert = await upsertConversationByExternalMessage({
-        ownerId: payload.userId,
-        contactId: String(contact._id),
-        mailboxId: String(auth.integration._id),
-        method: 'email',
-        direction: 'incoming',
-        subject: subject || null,
-        body: details.data.snippet || null,
-        from: fromEmail,
-        to: toEmails,
-        participants,
-        externalMessageId: details.data.id || msg.id,
-        externalThreadId: details.data.threadId || null,
-        sentAt,
-        createdBy: payload.userId,
-        updatedBy: payload.userId,
-      });
+          return upsertConversationByExternalMessage({
+            ownerId: payload.userId,
+            contactId: String(contact._id),
+            mailboxId: String(auth.integration._id),
+            method: 'email',
+            direction: 'incoming',
+            subject: subject || null,
+            body: details.data.snippet || null,
+            from: fromEmail,
+            to: toEmails,
+            participants,
+            externalMessageId: details.data.id || null,
+            externalThreadId: details.data.threadId || null,
+            sentAt,
+            createdBy: payload.userId,
+            updatedBy: payload.userId,
+          }).catch(() => null);
+        })
+    );
 
-      if (upsert.status === 'created') {
-        syncedCount += 1;
-      }
-    }
+    syncedCount += upsertResults.filter((item) => item?.status === 'created').length;
   }
 
   return { status: 'ok' as const, syncedCount };

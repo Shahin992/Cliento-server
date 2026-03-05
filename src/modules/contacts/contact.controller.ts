@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { z, ZodError } from 'zod';
 import { sendError, sendResponse } from '../../../Utils/response';
+import { syncGoogleInboxRepliesForContact } from '../mail/google.service';
 import { createContact, deleteContact, getContactById, listContactNames, listContacts, updateContact, updateContactPhoto } from './contact.service';
 
 const LENGTH = {
@@ -138,6 +139,24 @@ const getUserIdFromReq = (req: Request) => (req as any).user?.id as string | und
 
 const getQueryValue = (value: unknown) => (typeof value === 'string' ? value : undefined);
 
+const triggerContactListInboxSync = async (userId: string, contactIds: string[]) => {
+  if (!contactIds.length) return;
+
+  const syncLimit = Number(process.env.CONTACT_LIST_SYNC_LIMIT || 20);
+  const targetContactIds = contactIds.slice(0, Math.max(1, syncLimit));
+
+  await Promise.allSettled(
+    targetContactIds.map((contactId) =>
+      syncGoogleInboxRepliesForContact({
+        userId,
+        contactId,
+        maxResultsPerMailbox: 5,
+        maxMailboxes: 1,
+      })
+    )
+  );
+};
+
 export const createContactHandler = async (req: Request, res: Response) => {
   try {
     const userId = getUserIdFromReq(req);
@@ -222,6 +241,10 @@ export const listContactsHandler = async (req: Request, res: Response) => {
     });
 
     const contacts = await listContacts(userId, query);
+    const contactIds = contacts.contacts.map((contact: any) => String(contact._id));
+    void triggerContactListInboxSync(userId, contactIds).catch((error: Error) => {
+      console.error(`====> Contact list inbox sync failed for user ${userId}: ${error.message}`);
+    });
 
     return sendResponse(res, {
       success: true,

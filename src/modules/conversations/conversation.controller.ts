@@ -312,10 +312,15 @@ export const listConversationsHandler = async (req: Request, res: Response) => {
       contactId: getQueryValue(req.query.contactId),
     });
 
-    const syncResult = await syncGoogleInboxRepliesForContact({
-      userId,
-      contactId: query.contactId,
-    });
+    const syncResult = await Promise.race([
+      syncGoogleInboxRepliesForContact({
+        userId,
+        contactId: query.contactId,
+        maxResultsPerMailbox: 10,
+        maxMailboxes: 1,
+      }),
+      new Promise<{ status: 'timeout' }>((resolve) => setTimeout(() => resolve({ status: 'timeout' }), 3500)),
+    ]);
     if (syncResult.status === 'contact_not_found') {
       return sendError(res, {
         success: false,
