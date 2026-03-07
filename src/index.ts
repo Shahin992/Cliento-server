@@ -4,6 +4,7 @@ import swaggerUi from 'swagger-ui-express';
 import swaggerJSDoc from 'swagger-jsdoc';
 import authRoutes from '../src/modules/users/user.route';
 import userRoutes from '../src/modules/users/users.route';
+import tagRoutes from '../src/modules/tags/tags.route';
 import uploadRoutes from '../src/modules/upload/upload.route';
 import contactRoutes from '../src/modules/contacts/contact.route';
 import contactNoteRoutes from '../src/modules/contacts/contactNote.route';
@@ -65,6 +66,7 @@ const swaggerSpec = swaggerJSDoc({
             { name: 'Upload' },
             { name: 'Auth' },
             { name: 'Users' },
+            { name: 'Tags' },
             { name: 'Contacts' },
             { name: 'Smart Lists' },
             { name: 'Pipelines' },
@@ -99,7 +101,7 @@ app.use('/api-docs', swaggerUi.serve);
 app.get('/api-docs', swaggerUi.setup(swaggerSpec, {
     swaggerOptions: {
         tagsSorter: (a: string, b: string) => {
-            const tagOrder = ['Upload', 'Auth', 'Users', 'Contacts', 'Smart Lists', 'Pipelines', 'Deals', 'Tasks', 'Conversations', 'Dashboard', 'Mail', 'Packages', 'Subscriptions'];
+            const tagOrder = ['Upload', 'Auth', 'Users', 'Tags', 'Contacts', 'Smart Lists', 'Pipelines', 'Deals', 'Tasks', 'Conversations', 'Dashboard', 'Mail', 'Packages', 'Subscriptions'];
             const rankA = tagOrder.indexOf(a);
             const rankB = tagOrder.indexOf(b);
             const hasRankA = rankA !== -1;
@@ -121,16 +123,17 @@ app.get('/api-docs', swaggerUi.setup(swaggerSpec, {
                 '/api/upload': 1,
                 '/api/auth': 2,
                 '/api/users': 3,
-                '/api/contacts': 4,
-                '/api/contact-notes': 5,
-                '/api/smart-lists': 6,
-                '/api/pipelines': 7,
-                '/api/deals': 8,
-                '/api/tasks': 9,
-                '/api/conversations': 10,
-                '/api/mail/google': 11,
-                '/api/packages': 12,
-                '/api/subscriptions': 13,
+                '/api/tags': 4,
+                '/api/contacts': 5,
+                '/api/contact-notes': 6,
+                '/api/smart-lists': 7,
+                '/api/pipelines': 8,
+                '/api/deals': 9,
+                '/api/tasks': 10,
+                '/api/conversations': 11,
+                '/api/mail/google': 12,
+                '/api/packages': 13,
+                '/api/subscriptions': 14,
             };
 
             const getPathRank = (path: string) => {
@@ -157,6 +160,7 @@ app.get('/api-docs', swaggerUi.setup(swaggerSpec, {
 
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
+app.use('/api/tags', tagRoutes);
 app.use('/api/upload', uploadRoutes);
 app.use('/api/contacts', contactRoutes);
 app.use('/api/contact-notes', contactNoteRoutes);
