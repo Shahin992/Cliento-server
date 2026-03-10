@@ -100,8 +100,13 @@ const CONTACT_DETAIL_FIELDS = [
   'updatedAt',
 ].join(' ');
 
-export const listContacts = async (ownerId: string, query: ListContactsQuery): Promise<ListContactsResult> => {
-  const conditions: FilterQuery<IContact>[] = [{ ownerId, deletedAt: null }];
+const buildOwnerScopeFilter = (ownerIds: string[]) => ({
+  ownerId: { $in: ownerIds },
+  deletedAt: null,
+});
+
+export const listContacts = async (ownerIds: string[], query: ListContactsQuery): Promise<ListContactsResult> => {
+  const conditions: FilterQuery<IContact>[] = [buildOwnerScopeFilter(ownerIds)];
 
   if (query.search) {
     const regex = createRegex(query.search);
@@ -170,8 +175,8 @@ type ListContactNamesQuery = {
   search?: string;
 };
 
-export const listContactNames = async (ownerId: string, query: ListContactNamesQuery) => {
-  const conditions: FilterQuery<IContact>[] = [{ ownerId, deletedAt: null }];
+export const listContactNames = async (ownerIds: string[], query: ListContactNamesQuery) => {
+  const conditions: FilterQuery<IContact>[] = [buildOwnerScopeFilter(ownerIds)];
 
   if (query.search) {
     const regex = createRegex(query.search);

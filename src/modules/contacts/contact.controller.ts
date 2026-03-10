@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { z, ZodError } from 'zod';
 import { sendError, sendResponse } from '../../../Utils/response';
+import { User } from '../users/user.model';
 import { syncGoogleInboxRepliesForContact } from '../mail/google.service';
 import { createContact, deleteContact, getContactById, listContactNames, listContacts, updateContact, updateContactPhoto } from './contact.service';
 
@@ -136,8 +137,19 @@ const updateContactPhotoSchema = z.object({
 });
 
 const getUserIdFromReq = (req: Request) => (req as any).user?.id as string | undefined;
+const getTeamIdFromReq = (req: Request) => (req as any).user?.teamId as number | null | undefined;
 
 const getQueryValue = (value: unknown) => (typeof value === 'string' ? value : undefined);
+
+const resolveTeamOwnerIds = async (req: Request, userId: string): Promise<string[]> => {
+  const teamId = getTeamIdFromReq(req);
+  if (teamId === null || teamId === undefined) return [userId];
+
+  const teamUsers = await User.find({ teamId: Number(teamId) }).select('_id').lean();
+  if (!teamUsers.length) return [userId];
+
+  return teamUsers.map((user) => String(user._id));
+};
 
 const triggerContactListInboxSync = async (userId: string, contactIds: string[]) => {
   if (!contactIds.length) return;
@@ -240,9 +252,12 @@ export const listContactsHandler = async (req: Request, res: Response) => {
       search: getQueryValue(req.query.search) ?? getQueryValue(req.query.q),
     });
 
-    const contacts = await listContacts(userId, query);
-    const contactIds = contacts.contacts.map((contact: any) => String(contact._id));
-    void triggerContactListInboxSync(userId, contactIds).catch((error: Error) => {
+    const ownerIds = await resolveTeamOwnerIds(req, userId);
+    const contacts = await listContacts(ownerIds, query);
+    const ownContactIds = contacts.contacts
+      .filter((contact: any) => String(contact.ownerId) === userId)
+      .map((contact: any) => String(contact._id));
+    void triggerContactListInboxSync(userId, ownContactIds).catch((error: Error) => {
       console.error(`====> Contact list inbox sync failed for user ${userId}: ${error.message}`);
     });
 
@@ -287,7 +302,8 @@ export const listContactNamesHandler = async (req: Request, res: Response) => {
       limit: getQueryValue(req.query.limit),
       search: getQueryValue(req.query.search) ?? getQueryValue(req.query.q),
     });
-    const contacts = await listContactNames(userId, payload);
+    const ownerIds = await resolveTeamOwnerIds(req, userId);
+    const contacts = await listContactNames(ownerIds, payload);
 
     return sendResponse(res, {
       success: true,
