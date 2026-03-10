@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { z, ZodError } from 'zod';
 import { sendError, sendResponse } from '../../../Utils/response';
+import { User } from '../users/user.model';
 import {
   createDeal,
   deleteDeal,
@@ -118,7 +119,25 @@ const listContactDealsQuerySchema = z.object({
 });
 
 const getUserIdFromReq = (req: Request) => (req as any).user?.id as string | undefined;
+const getTeamIdFromReq = (req: Request) => (req as any).user?.teamId as number | null | undefined;
+const getUserRoleFromReq = (req: Request) => (req as any).user?.role as string | undefined;
 const getQueryValue = (value: unknown) => (typeof value === 'string' ? value : undefined);
+
+const resolveTeamOwnerIds = async (req: Request, userId: string): Promise<string[]> => {
+  const teamId = getTeamIdFromReq(req);
+  if (teamId === null || teamId === undefined) return [userId];
+
+  const teamUsers = await User.find({ teamId: Number(teamId) }).select('_id').lean();
+  if (!teamUsers.length) return [userId];
+
+  return teamUsers.map((user) => String(user._id));
+};
+
+const resolveDeleteOwnerIds = async (req: Request, userId: string): Promise<string[]> => {
+  const role = (getUserRoleFromReq(req) || '').toUpperCase();
+  if (role === 'MEMBER') return [userId];
+  return resolveTeamOwnerIds(req, userId);
+};
 
 export const createDealHandler = async (req: Request, res: Response) => {
   try {
@@ -264,7 +283,8 @@ export const listDealsHandler = async (req: Request, res: Response) => {
       pipelineId: getQueryValue(req.query.pipelineId),
     });
 
-    const result = await listDeals(userId, query);
+    const ownerIds = await resolveTeamOwnerIds(req, userId);
+    const result = await listDeals(ownerIds, query);
 
     return sendResponse(res, {
       success: true,
@@ -309,7 +329,8 @@ export const listContactDealsHandler = async (req: Request, res: Response) => {
       status: getQueryValue(req.query.status),
     });
 
-    const result = await listDealsByContact(userId, contactId, query);
+    const ownerIds = await resolveTeamOwnerIds(req, userId);
+    const result = await listDealsByContact(ownerIds, contactId, query);
 
     if (result.status === 'contact_not_found') {
       return sendError(res, {
@@ -437,7 +458,8 @@ export const deleteDealHandler = async (req: Request, res: Response) => {
     }
 
     const dealId = objectIdSchema.parse(req.params.dealId);
-    const result = await deleteDeal(userId, dealId, userId);
+    const ownerIds = await resolveDeleteOwnerIds(req, userId);
+    const result = await deleteDeal(ownerIds, dealId, userId);
 
     if (result.status === 'deal_not_found') {
       return sendError(res, {

@@ -138,6 +138,7 @@ const updateContactPhotoSchema = z.object({
 
 const getUserIdFromReq = (req: Request) => (req as any).user?.id as string | undefined;
 const getTeamIdFromReq = (req: Request) => (req as any).user?.teamId as number | null | undefined;
+const getUserRoleFromReq = (req: Request) => (req as any).user?.role as string | undefined;
 
 const getQueryValue = (value: unknown) => (typeof value === 'string' ? value : undefined);
 
@@ -149,6 +150,12 @@ const resolveTeamOwnerIds = async (req: Request, userId: string): Promise<string
   if (!teamUsers.length) return [userId];
 
   return teamUsers.map((user) => String(user._id));
+};
+
+const resolveDeleteOwnerIds = async (req: Request, userId: string): Promise<string[]> => {
+  const role = (getUserRoleFromReq(req) || '').toUpperCase();
+  if (role === 'MEMBER') return [userId];
+  return resolveTeamOwnerIds(req, userId);
 };
 
 const triggerContactListInboxSync = async (userId: string, contactIds: string[]) => {
@@ -449,7 +456,8 @@ export const deleteContactHandler = async (req: Request, res: Response) => {
       });
     }
 
-    const deleted = await deleteContact(userId, req.params.id);
+    const ownerIds = await resolveDeleteOwnerIds(req, userId);
+    const deleted = await deleteContact(ownerIds, req.params.id, userId);
     if (!deleted) {
       return sendError(res, {
         success: false,

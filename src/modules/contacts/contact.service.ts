@@ -251,13 +251,13 @@ export const updateContact = async (ownerId: string, id: string, updates: Update
   return contact;
 };
 
-export const deleteContact = async (ownerId: string, id: string) => {
+export const deleteContact = async (ownerIds: string[], id: string, deletedBy: string) => {
   const contact = await Contact.findOneAndUpdate(
-    { _id: id, ownerId, deletedAt: null },
+    { _id: id, ownerId: { $in: ownerIds }, deletedAt: null },
     {
       deletedAt: new Date(),
-      deletedBy: ownerId,
-      updatedBy: ownerId,
+      deletedBy,
+      updatedBy: deletedBy,
     },
     { new: true }
   );

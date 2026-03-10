@@ -170,8 +170,13 @@ type ListDealsQuery = {
 const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const createRegex = (value: string) => new RegExp(escapeRegExp(value.trim()), 'i');
 
-export const listDeals = async (ownerId: string, query: ListDealsQuery) => {
-  const conditions: FilterQuery<IDeal>[] = [{ ownerId, deletedAt: null }];
+const buildOwnerScopeFilter = (ownerIds: string[]) => ({
+  ownerId: { $in: ownerIds },
+  deletedAt: null,
+});
+
+export const listDeals = async (ownerIds: string[], query: ListDealsQuery) => {
+  const conditions: FilterQuery<IDeal>[] = [buildOwnerScopeFilter(ownerIds)];
 
   if (query.status) {
     conditions.push({ status: query.status });
@@ -232,16 +237,21 @@ type ListContactDealsQuery = {
 };
 
 export const listDealsByContact = async (
-  ownerId: string,
+  ownerIds: string[],
   contactId: string,
   query: ListContactDealsQuery
 ) => {
-  const contactCheck = await validateContact(ownerId, contactId);
-  if (contactCheck.status !== 'ok') {
+  const contact = await Contact.findOne({
+    _id: contactId,
+    ownerId: { $in: ownerIds },
+    deletedAt: null,
+  }).select('_id');
+
+  if (!contact) {
     return { status: 'contact_not_found' as const };
   }
 
-  const result = await listDeals(ownerId, {
+  const result = await listDeals(ownerIds, {
     ...query,
     contactId,
   });
@@ -309,9 +319,9 @@ export const updateDeal = async (payload: UpdateDealInput) => {
   return { status: 'ok' as const, deal };
 };
 
-export const deleteDeal = async (ownerId: string, dealId: string, deletedBy: string) => {
+export const deleteDeal = async (ownerIds: string[], dealId: string, deletedBy: string) => {
   const deal = await Deal.findOneAndUpdate(
-    { _id: dealId, ownerId, deletedAt: null },
+    { _id: dealId, ownerId: { $in: ownerIds }, deletedAt: null },
     {
       deletedAt: new Date(),
       deletedBy,
